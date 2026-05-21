@@ -42,7 +42,13 @@ function initials(t: string) { return t.split(' ').slice(0, 2).map(w => w[0]).jo
 function useCountdown(target: string) {
   // calc se define fuera del estado para que el intervalo
   // siempre lea el target actual y no un closure stale
-  const calcRef = useRef<() => { d: number; h: number; m: number; s: number; over: boolean }>();
+  const calcRef = useRef<(() => {
+  d: number;
+  h: number;
+  m: number;
+  s: number;
+  over: boolean;
+ }) | null>(null);
   calcRef.current = () => {
     const diff = new Date(target).getTime() - Date.now();
     if (diff <= 0) return { d: 0, h: 0, m: 0, s: 0, over: true };

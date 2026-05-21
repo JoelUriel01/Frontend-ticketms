@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { API_BASE_URL } from '@/lib/supabase/api';
+import type { Variants } from 'framer-motion';
 
 
 /* ─── Types ─────────────────────────────────────────────── */
@@ -36,21 +37,69 @@ const containerVariants = {
   show: { transition: { staggerChildren: 0.07, delayChildren: 0.15 } },
 };
 
-const cardVariants = {
-  hidden: { opacity: 0, y: 24 },
-  show: { opacity: 1, y: 0, transition: { type: 'spring', damping: 26, stiffness: 220 } },
-  exit: { opacity: 0, scale: 0.95, transition: { duration: 0.18, ease: [0.4, 0, 1, 1] } },
+const cardVariants: Variants = {
+  hidden: {
+    opacity: 0,
+    y: 24,
+  },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      type: 'spring' as const,
+      damping: 26,
+      stiffness: 220,
+    },
+  },
+  exit: {
+    opacity: 0,
+    scale: 0.95,
+    transition: {
+      duration: 0.18,
+      ease: [0.4, 0, 1, 1],
+    },
+  },
 };
 
-const headerVariants = {
+const headerVariants: Variants = {
   hidden: { opacity: 0, y: -16 },
-  show: { opacity: 1, y: 0, transition: { type: 'spring', damping: 28, stiffness: 200, delay: 0.05 } },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      type: 'spring',
+      damping: 28,
+      stiffness: 200,
+      delay: 0.05,
+    },
+  },
 };
 
-const formVariants = {
-  hidden: { opacity: 0, y: 16, scale: 0.98 },
-  show: { opacity: 1, y: 0, scale: 1, transition: { type: 'spring', damping: 28, stiffness: 200 } },
-  exit: { opacity: 0, y: -12, scale: 0.97, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } },
+const formVariants: Variants = {
+  hidden: {
+    opacity: 0,
+    y: 16,
+    scale: 0.98,
+  },
+  show: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: {
+      type: 'spring' as const,
+      damping: 28,
+      stiffness: 200,
+    },
+  },
+  exit: {
+    opacity: 0,
+    y: -12,
+    scale: 0.97,
+    transition: {
+      duration: 0.2,
+      ease: [0.4, 0, 1, 1],
+    },
+  },
 };
 
 /* ─── Helpers ────────────────────────────────────────────── */
