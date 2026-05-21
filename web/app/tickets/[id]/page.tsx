@@ -5,8 +5,6 @@ import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import QRCode from 'react-qr-code';
-import { API_BASE_URL } from '@/lib/supabase/api';
-
 
 
 interface Ticket {
@@ -47,7 +45,6 @@ function colorFor(str: string) {
 function initials(t: string) { return t.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase(); }
 const TICKET_PRICE = 250;
 
-// ─── Confetti ────────────────────────────────────────────────────────────────
 function ConfettiCanvas({ active }: { active: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -91,284 +88,6 @@ function ConfettiCanvas({ active }: { active: boolean }) {
   return <canvas ref={ref} className="confetti-canvas" aria-hidden="true" />;
 }
 
-// ─── Tiburón animado (vista aérea) ───────────────────────────────────────────
-//
-// El tiburón nada en una trayectoria elíptica sobre el QR usando canvas 2D.
-// Se dibuja visto desde arriba: cuerpo fusiforme, aleta dorsal prominente,
-// cola en horquilla, aletas pectorales y un ojo lateral.
-// La animación es continua y fluida — imposible capturar en foto estática.
-//
-function SharkOverlay({ color, size = 220, qrSize = 140 }: {
-  color: string;
-  size?: number;
-  qrSize?: number;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rafRef    = useRef<number>(0);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d')!;
-    const W = size;
-    const H = size;
-    canvas.width  = W;
-    canvas.height = H;
-
-    // Órbita elíptica centrada en el QR
-    const cx = W / 2;
-    const cy = H / 2;
-
-
-    const orbitR = (qrSize / 2) + size * 0.10;
-    const rx = orbitR * 1.08;
-    const ry = orbitR * 0.72;
-    const speed = 0.018;   // rad / frame  (~60 fps → ~6 s por vuelta)
-
-    // Extrae componentes RGB del color del evento para matiz propio
-    let sharkColor = color;
-
-    let angle = 0;
-
-    // ── Dibuja el cuerpo del tiburón centrado en (0,0) apuntando hacia +X
-    function drawShark(ctx: CanvasRenderingContext2D, bodyLen: number) {
-      const L = bodyLen;
-      const W2 = L * 0.22;  // semi-ancho máximo del cuerpo
-
-      ctx.save();
-
-      // Sombra suave en el agua
-      ctx.shadowColor = 'rgba(0,0,0,0.35)';
-      ctx.shadowBlur  = 6;
-
-      // ── Cuerpo principal (fusiforme) ──────────────────────────────────────
-      ctx.beginPath();
-      // Parte delantera (hocico puntiagudo)
-      ctx.moveTo(L * 0.52, 0);
-      // Lado superior
-      ctx.bezierCurveTo(
-        L * 0.30,  -W2 * 0.6,
-        -L * 0.10, -W2,
-        -L * 0.30, -W2 * 0.5
-      );
-      // Cola — lóbulo superior
-      ctx.bezierCurveTo(
-        -L * 0.40, -W2 * 0.2,
-        -L * 0.45,  W2 * 0.05,
-        -L * 0.52,  0
-      );
-      // Cola — lóbulo inferior
-      ctx.bezierCurveTo(
-        -L * 0.45, -W2 * 0.05,
-        -L * 0.40,  W2 * 0.2,
-        -L * 0.30,  W2 * 0.5
-      );
-      // Lado inferior
-      ctx.bezierCurveTo(
-        -L * 0.10,  W2,
-        L * 0.30,   W2 * 0.6,
-        L * 0.52,   0
-      );
-      ctx.closePath();
-
-      // Degradado dorsal (más oscuro en el lomo)
-      const grad = ctx.createLinearGradient(0, -W2, 0, W2);
-      grad.addColorStop(0,   sharkColor);
-      grad.addColorStop(0.5, sharkColor + 'cc');
-      grad.addColorStop(1,   sharkColor + '88');
-      ctx.fillStyle = grad;
-      ctx.fill();
-
-      // ── Aleta dorsal ───────────────────────────────────────────────────────
-      ctx.beginPath();
-      ctx.moveTo(L * 0.05, -W2 * 0.82);
-      ctx.bezierCurveTo(
-        L * 0.10, -W2 * 1.55,
-        L * 0.18, -W2 * 1.60,
-        L * 0.22, -W2 * 1.45
-      );
-      ctx.bezierCurveTo(
-        L * 0.24, -W2 * 1.20,
-        L * 0.18, -W2 * 0.95,
-        L * 0.14, -W2 * 0.85
-      );
-      ctx.closePath();
-      ctx.fillStyle = sharkColor;
-      ctx.shadowBlur = 3;
-      ctx.fill();
-
-      // ── Cola (horquilla) ──────────────────────────────────────────────────
-      // Lóbulo superior
-      ctx.beginPath();
-      ctx.moveTo(-L * 0.50, -W2 * 0.08);
-      ctx.bezierCurveTo(
-        -L * 0.58, -W2 * 0.60,
-        -L * 0.70, -W2 * 0.90,
-        -L * 0.78, -W2 * 0.75
-      );
-      ctx.bezierCurveTo(
-        -L * 0.72, -W2 * 0.50,
-        -L * 0.58, -W2 * 0.18,
-        -L * 0.50,  W2 * 0.08
-      );
-      ctx.closePath();
-      ctx.fillStyle = sharkColor + 'dd';
-      ctx.fill();
-
-      // Lóbulo inferior
-      ctx.beginPath();
-      ctx.moveTo(-L * 0.50,  W2 * 0.08);
-      ctx.bezierCurveTo(
-        -L * 0.56,  W2 * 0.45,
-        -L * 0.66,  W2 * 0.68,
-        -L * 0.72,  W2 * 0.55
-      );
-      ctx.bezierCurveTo(
-        -L * 0.65,  W2 * 0.35,
-        -L * 0.56,  W2 * 0.15,
-        -L * 0.50, -W2 * 0.08
-      );
-      ctx.closePath();
-      ctx.fillStyle = sharkColor + 'bb';
-      ctx.fill();
-
-      // ── Aletas pectorales ─────────────────────────────────────────────────
-      // Superior
-      ctx.beginPath();
-      ctx.moveTo(L * 0.18, -W2 * 0.88);
-      ctx.bezierCurveTo(
-        L * 0.22, -W2 * 1.30,
-        L * 0.05, -W2 * 1.40,
-        -L * 0.05,-W2 * 1.15
-      );
-      ctx.bezierCurveTo(
-        -L * 0.02,-W2 * 0.98,
-        L * 0.08, -W2 * 0.92,
-        L * 0.18, -W2 * 0.88
-      );
-      ctx.closePath();
-      ctx.fillStyle = sharkColor + 'aa';
-      ctx.fill();
-
-      // Inferior
-      ctx.beginPath();
-      ctx.moveTo(L * 0.18,  W2 * 0.88);
-      ctx.bezierCurveTo(
-        L * 0.22,  W2 * 1.30,
-        L * 0.05,  W2 * 1.40,
-        -L * 0.05, W2 * 1.15
-      );
-      ctx.bezierCurveTo(
-        -L * 0.02, W2 * 0.98,
-        L * 0.08,  W2 * 0.92,
-        L * 0.18,  W2 * 0.88
-      );
-      ctx.closePath();
-      ctx.fillStyle = sharkColor + 'aa';
-      ctx.fill();
-
-      // ── Ojo ───────────────────────────────────────────────────────────────
-      ctx.shadowBlur = 0;
-      ctx.beginPath();
-      ctx.ellipse(L * 0.28, -W2 * 0.42, L * 0.035, L * 0.025, 0, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(0,0,0,0.75)';
-      ctx.fill();
-      // Brillo
-      ctx.beginPath();
-      ctx.ellipse(L * 0.285, -W2 * 0.44, L * 0.010, L * 0.008, 0, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.6)';
-      ctx.fill();
-
-      // ── Boca ──────────────────────────────────────────────────────────────
-      ctx.beginPath();
-      ctx.moveTo(L * 0.50,  W2 * 0.08);
-      ctx.quadraticCurveTo(L * 0.44,  W2 * 0.22, L * 0.36,  W2 * 0.10);
-      ctx.strokeStyle = 'rgba(0,0,0,0.50)';
-      ctx.lineWidth   = 1.2;
-      ctx.stroke();
-
-      ctx.restore();
-    }
-
-    // ── Bucle principal ──────────────────────────────────────────────────────
-    function tick() {
-      ctx.clearRect(0, 0, size, size);
-      angle += speed;
-      if (angle > Math.PI * 2) angle -= Math.PI * 2;
-      const px = cx + rx * Math.cos(angle);
-      const py = cy + ry * Math.sin(angle);
-      const tx = -rx * Math.sin(angle);
-      const ty =  ry * Math.cos(angle);
-      const heading = Math.atan2(ty, tx);
-      const depthScale = 0.82 + 0.18 * ((Math.sin(angle) + 1) / 2);
-      const bodyLen = size * 0.22 * depthScale; // más pequeño relativo al canvas grande
-      ctx.save();
-      ctx.translate(px, py);
-      ctx.rotate(heading);
-      drawShark(ctx, bodyLen);
-      ctx.restore();
-      rafRef.current = requestAnimationFrame(tick);
-    }
-
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
-  }, [color, size, qrSize]);
-
-  return (
-    <canvas
-      ref={canvasRef}
-      aria-hidden="true"
-      style={{
-        position: 'absolute',
-        inset: 0,
-        width: '100%',
-        height: '100%',
-        pointerEvents: 'none',
-      }}
-    />
-  );
-}
-
-// ─── QR con Tiburón ──────────────────────────────────────────────────────────
-function QRWithShark({ value, color, size = 140 }: {
-  value: string;
-  color: string;
-  size?: number;
-}) {
-  const padding = Math.round(size * 0.32);       // margen alrededor del QR
-  const canvasSize = size + padding * 2;          // canvas más grande
-
-  return (
-    <div style={{ position: 'relative', width: canvasSize, height: canvasSize }}>
-
-      {/* QR centrado con fondo BLANCO — crítico para que los lectores funcionen */}
-      <div style={{
-        position: 'absolute',
-        top: padding,
-        left: padding,
-        width: size,
-        height: size,
-        borderRadius: '8px',
-        overflow: 'hidden',
-        background: '#ffffff',    // ← fondo blanco, no transparent
-        zIndex: 1,
-      }}>
-        <QRCode
-          value={value}
-          size={size}
-          bgColor="#ffffff"
-          fgColor="#000000"        // ← negro sobre blanco, máximo contraste
-          style={{ display: 'block' }}
-        />
-      </div>
-
-      {/* Canvas del tiburón — cubre todo el área pero la órbita evita el QR */}
-      <SharkOverlay color={color} size={canvasSize} qrSize={size} />
-    </div>
-  );
-}
-
-// ─── Página principal ─────────────────────────────────────────────────────────
 export default function TicketDetailPage() {
   const params      = useParams<{ id: string }>();
   const searchParams = useSearchParams();
@@ -385,88 +104,120 @@ export default function TicketDetailPage() {
   const [qrLoading, setQrLoading] = useState(false);
   const [qrError, setQrError] = useState('');
 
-  const color    = ticket?.event ? colorFor(ticket.event.title) : '#00c2b3';
-  const abbr     = ticket?.event ? initials(ticket.event.title) : '';
-  const total    = (ticket?.quantity ?? 0) * TICKET_PRICE;
-  const shortId  = ticket?.id.slice(0, 8).toUpperCase() ?? '';
-
+    const color = ticket?.event ? colorFor(ticket.event.title) : '#00c2b3';
+  const abbr  = ticket?.event ? initials(ticket.event.title) : '';
+  const total = (ticket?.quantity ?? 0) * TICKET_PRICE;
+  const shortId = ticket?.id.slice(0, 8).toUpperCase() ?? '';
+  
   const normalizedStatus = (ticket?.status ?? 'PENDING').toUpperCase();
-  const isUsed    = normalizedStatus === 'USED';
-  const isBlocked = ['USED', 'REVOKED', 'EXPIRED'].includes(normalizedStatus);
+const isUsed = normalizedStatus === 'USED';
+const isBlocked = ['USED', 'REVOKED', 'EXPIRED'].includes(normalizedStatus);
+
 
   async function loadQrToken(ticketId: string) {
-    try {
-      setQrLoading(true);
-      setQrError('');
+  try {
+    setQrLoading(true);
+    setQrError('');
 
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (!session?.access_token) {
+      setQrError('Tu sesión expiró. Inicia sesión nuevamente.');
+      return;
+    }
+
+    const res = await fetch(`http://localhost:3001/tickets/${ticketId}/qr-token`, {
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data) {
+      throw new Error(data?.message || 'No se pudo generar el QR dinámico.');
+    }
+
+    setQrToken(data.token);
+    setQrExpiresAt(data.expiresAt);
+  } catch (e: any) {
+    setQrError(e.message ?? 'No se pudo generar el QR dinámico.');
+    setQrToken('');
+    setQrExpiresAt('');
+  } finally {
+    setQrLoading(false);
+  }
+}
+
+useEffect(() => {
+  if (!ticket?.id) return;
+  if (isBlocked) {
+    setQrToken('');
+    setQrExpiresAt('');
+    return;
+  }
+
+  let intervalId: NodeJS.Timeout;
+
+  loadQrToken(ticket.id);
+  intervalId = setInterval(() => {
+    loadQrToken(ticket.id);
+  }, 25000);
+
+  return () => clearInterval(intervalId);
+}, [ticket?.id, isBlocked]);
+
+useEffect(() => {
+  async function loadTicket() {
+    if (!id) return;
+
+    try {
       const supabase = createClient();
-      const { data: { session } } = await supabase.auth.getSession();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
 
       if (!session?.access_token) {
-        setQrError('Tu sesión expiró. Inicia sesión nuevamente.');
+        setNF(true);
         return;
       }
 
-      const res = await fetch(`${API_BASE_URL}/tickets/${ticketId}/qr-token`, {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+      const res = await fetch(`http://localhost:3001/tickets/${id}`, {
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+        },
       });
 
-      const data = await res.json().catch(() => null);
+      if (res.status === 404) {
+        setNF(true);
+        return;
+      }
 
-      if (!res.ok || !data) throw new Error(data?.message || 'No se pudo generar el QR dinámico.');
+      if (!res.ok) {
+        throw new Error('No se pudo cargar el boleto');
+      }
 
-      setQrToken(data.token);
-      setQrExpiresAt(data.expiresAt);
-    } catch (e: any) {
-      setQrError(e.message ?? 'No se pudo generar el QR dinámico.');
-      setQrToken('');
-      setQrExpiresAt('');
+      const data = await res.json();
+      setTicket(data);
+    } catch {
+      setNF(true);
     } finally {
-      setQrLoading(false);
+      setLoading(false);
     }
   }
 
-  useEffect(() => {
-    if (!ticket?.id) return;
-    if (isBlocked) { setQrToken(''); setQrExpiresAt(''); return; }
-
-    let intervalId: NodeJS.Timeout;
-    loadQrToken(ticket.id);
-    intervalId = setInterval(() => loadQrToken(ticket.id), 25000);
-    return () => clearInterval(intervalId);
-  }, [ticket?.id, isBlocked]);
-
-  useEffect(() => {
-    async function loadTicket() {
-      if (!id) return;
-      try {
-        const supabase = createClient();
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) { setNF(true); return; }
-
-        const res = await fetch(`${API_BASE_URL}/tickets/${id}`, {
-          headers: { Authorization: `Bearer ${session.access_token}` },
-        });
-
-        if (res.status === 404) { setNF(true); return; }
-        if (!res.ok) throw new Error('No se pudo cargar el boleto');
-
-        const data = await res.json();
-        setTicket(data);
-      } catch {
-        setNF(true);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadTicket();
-  }, [id]);
+  loadTicket();
+}, [id]);
 
   useEffect(() => {
     if (isNew && !loading && ticket) {
       setTimeout(() => setConfetti(true), 300);
     }
   }, [isNew, loading, ticket]);
+
 
   return (
     <>
@@ -476,9 +227,7 @@ export default function TicketDetailPage() {
         <nav className="top-nav">
           <div className="nav-inner">
             <Link href="/tickets/me" className="back-btn">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="15 18 9 12 15 6"/>
-              </svg>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
               Mis boletos
             </Link>
           </div>
@@ -496,17 +245,14 @@ export default function TicketDetailPage() {
             <>
               {isNew && (
                 <div className="success-banner" role="status">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
                   ¡Compra exitosa! Tu boleto está listo.
                 </div>
               )}
 
               {/* ── Boleto visual ── */}
               <div className="ticket-card" style={{ '--accent-color': color } as React.CSSProperties}>
-
-                {/* Header */}
+                {/* Header del boleto */}
                 <div className="ticket-header" style={{ background: `linear-gradient(135deg, ${color}28 0%, #1a1a1c 100%)` }}>
                   <div className="ticket-avatar" style={{ background: color }}>{abbr}</div>
                   <div className="ticket-event-info">
@@ -526,7 +272,7 @@ export default function TicketDetailPage() {
                   <div className="notch right" />
                 </div>
 
-                {/* Cuerpo */}
+                {/* Detalles del boleto */}
                 <div className="ticket-body">
                   <div className="ticket-fields">
                     <div className="ticket-field">
@@ -557,94 +303,87 @@ export default function TicketDetailPage() {
                     </div>
                   </div>
 
-                  {/* ── Sección QR ── */}
-                  <div className="ticket-qr-section">
-                    {isBlocked ? (
-                      <div className={`qr-blocked qr-${normalizedStatus.toLowerCase()}`}>
-                        <div className="qr-blocked-icon">
-                          {isUsed ? (
-                            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                              <path d="M9 12l2 2 4-4"/>
-                              <circle cx="12" cy="12" r="9"/>
-                            </svg>
-                          ) : (
-                            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                              <circle cx="12" cy="12" r="9"/>
-                              <path d="M8.5 8.5l7 7"/>
-                              <path d="M15.5 8.5l-7 7"/>
-                            </svg>
-                          )}
-                        </div>
-                        <p className="ticket-code">#{shortId}</p>
-                        <p className="qr-blocked-title">
-                          {normalizedStatus === 'USED'
-                            ? 'Este boleto ya fue utilizado'
-                            : normalizedStatus === 'REVOKED'
-                            ? 'Este boleto fue revocado'
-                            : 'Este boleto expiró'}
-                        </p>
-                        <p className="ticket-code-note">
-                          {normalizedStatus === 'USED'
-                            ? 'El código QR dejó de mostrarse porque ya no puede volver a usarse.'
-                            : 'Este boleto ya no es válido para ingreso.'}
-                        </p>
-                      </div>
-                    ) : qrLoading && !qrToken ? (
-                      <div className="qr-loading">
-                        <div className="spinner small" />
-                        <p className="ticket-code-note">Generando código seguro...</p>
-                      </div>
-                    ) : qrError ? (
-                      <div className="qr-blocked qr-expired">
-                        <div className="qr-blocked-icon">
-                          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                            <circle cx="12" cy="12" r="9"/>
-                            <path d="M8.5 8.5l7 7"/>
-                            <path d="M15.5 8.5l-7 7"/>
-                          </svg>
-                        </div>
-                        <p className="qr-blocked-title">No se pudo generar el QR</p>
-                        <p className="ticket-code-note">{qrError}</p>
-                      </div>
-                    ) : (
-                      <>
-                        {/* ✦ QR + Tiburón ✦ */}
-                        <div className="qr-real">
-                          <QRWithShark
-                            value={qrToken}
-                            color={color}
-                            size={140}
-                          />
-                        </div>
+                  {/* QR placeholder / código */}
+<div className="ticket-qr-section">
+  {isBlocked ? (
+    <div className={`qr-blocked qr-${normalizedStatus.toLowerCase()}`}>
+      <div className="qr-blocked-icon">
+        {isUsed ? (
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+            <path d="M9 12l2 2 4-4" />
+            <circle cx="12" cy="12" r="9" />
+          </svg>
+        ) : (
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+            <circle cx="12" cy="12" r="9" />
+            <path d="M8.5 8.5l7 7" />
+            <path d="M15.5 8.5l-7 7" />
+          </svg>
+        )}
+      </div>
 
-                        <p className="ticket-code">#{shortId}</p>
-                        <p className="ticket-code-note">Este código se actualiza automáticamente.</p>
-                        {qrExpiresAt ? (
-                          <p className="ticket-code-note subtle">
-                            Válido hasta: {new Date(qrExpiresAt).toLocaleTimeString('es-MX')}
-                          </p>
-                        ) : null}
-                      </>
-                    )}
-                  </div>
+      <p className="ticket-code">#{shortId}</p>
+      <p className="qr-blocked-title">
+        {normalizedStatus === 'USED'
+          ? 'Este boleto ya fue utilizado'
+          : normalizedStatus === 'REVOKED'
+          ? 'Este boleto fue revocado'
+          : 'Este boleto expiró'}
+      </p>
+      <p className="ticket-code-note">
+        {normalizedStatus === 'USED'
+          ? 'El código QR dejó de mostrarse porque ya no puede volver a usarse.'
+          : 'Este boleto ya no es válido para ingreso.'}
+      </p>
+    </div>
+  ) : qrLoading && !qrToken ? (
+    <div className="qr-loading">
+      <div className="spinner small" />
+      <p className="ticket-code-note">Generando código seguro...</p>
+    </div>
+  ) : qrError ? (
+    <div className="qr-blocked qr-expired">
+      <div className="qr-blocked-icon">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M8.5 8.5l7 7" />
+          <path d="M15.5 8.5l-7 7" />
+        </svg>
+      </div>
+      <p className="qr-blocked-title">No se pudo generar el QR</p>
+      <p className="ticket-code-note">{qrError}</p>
+    </div>
+  ) : (
+    <>
+      <div className="qr-real">
+        <QRCode
+          value={qrToken}
+          size={140}
+          bgColor="transparent"
+          fgColor={color}
+        />
+      </div>
+      <p className="ticket-code">#{shortId}</p>
+      <p className="ticket-code-note">Este código se actualiza automáticamente.</p>
+      {qrExpiresAt ? (
+        <p className="ticket-code-note subtle">
+          Válido hasta: {new Date(qrExpiresAt).toLocaleTimeString('es-MX')}
+        </p>
+      ) : null}
+    </>
+  )}
+</div>
                 </div>
               </div>
 
               {/* ── Acciones ── */}
               <div className="ticket-actions">
                 <Link href="/discover" className="action-btn secondary">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="11" cy="11" r="8"/>
-                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                  </svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                   Descubrir más eventos
                 </Link>
                 <Link href="/tickets/me" className="action-btn primary" style={{ background: color }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6"/>
-                    <polyline points="14,2 20,2 20,8"/>
-                    <line x1="10" y1="14" x2="20" y2="4"/>
-                  </svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6"/><polyline points="14,2 20,2 20,8"/><line x1="10" y1="14" x2="20" y2="4"/></svg>
                   Ver todos mis boletos
                 </Link>
               </div>
@@ -757,7 +496,6 @@ const CSS = `
   .status-cancelled{background:oklch(0.35 0.1 15/0.2);color:#f87171;border:1px solid oklch(0.45 0.15 15/0.4);}
   .ticket-qr-section{display:flex;flex-direction:column;align-items:center;gap:0.35rem;}
   .qr-placeholder{width:90px;height:90px;border:2px solid;border-radius:var(--radius-md);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.3rem;background:var(--surface-2);}
-  .qr-real{position:relative;border-radius:10px;overflow:hidden;}
   .qr-label{font-size:0.65rem;font-weight:700;letter-spacing:0.1em;color:var(--text-faint);}
   .ticket-code{font-size:0.82rem;font-weight:700;color:var(--text);letter-spacing:0.06em;font-variant-numeric:tabular-nums;}
   .ticket-code-note{font-size:0.65rem;color:var(--text-faint);}
@@ -771,4 +509,6 @@ const CSS = `
   .loading-state{display:flex;justify-content:center;padding:4rem 0;}
   .error-state{text-align:center;padding:4rem 0;color:var(--text-muted);}
   .back-link{display:inline-flex;align-items:center;color:var(--accent);font-size:0.875rem;font-weight:500;text-decoration:none;margin-top:0.75rem;}
-`;
+`
+
+;
