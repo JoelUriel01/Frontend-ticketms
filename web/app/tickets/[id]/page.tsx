@@ -98,7 +98,11 @@ function ConfettiCanvas({ active }: { active: boolean }) {
 // cola en horquilla, aletas pectorales y un ojo lateral.
 // La animación es continua y fluida — imposible capturar en foto estática.
 //
-function SharkOverlay({ color, size = 160, qrSize }: { color: string; size?: number; qrSize?: number }) {
+function SharkOverlay({ color, size = 220, qrSize = 140 }: {
+  color: string;
+  size?: number;
+  qrSize?: number;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef    = useRef<number>(0);
 
@@ -114,9 +118,11 @@ function SharkOverlay({ color, size = 160, qrSize }: { color: string; size?: num
     // Órbita elíptica centrada en el QR
     const cx = W / 2;
     const cy = H / 2;
-    const safeRadius = ((qrSize ?? size * 0.6) / 2) + size * 0.12;
-    const rx = safeRadius * 1.05;
-    const ry = safeRadius * 0.72;
+
+
+    const orbitR = (qrSize / 2) + size * 0.10;
+    const rx = orbitR * 1.08;
+    const ry = orbitR * 0.72;
     const speed = 0.018;   // rad / frame  (~60 fps → ~6 s por vuelta)
 
     // Extrae componentes RGB del color del evento para matiz propio
@@ -286,51 +292,27 @@ function SharkOverlay({ color, size = 160, qrSize }: { color: string; size?: num
 
     // ── Bucle principal ──────────────────────────────────────────────────────
     function tick() {
-      ctx.clearRect(0, 0, W, H);
-
+      ctx.clearRect(0, 0, size, size);
       angle += speed;
       if (angle > Math.PI * 2) angle -= Math.PI * 2;
-
-      // Posición en la órbita elíptica
       const px = cx + rx * Math.cos(angle);
       const py = cy + ry * Math.sin(angle);
-
-      // Orientación tangente a la elipse
       const tx = -rx * Math.sin(angle);
       const ty =  ry * Math.cos(angle);
       const heading = Math.atan2(ty, tx);
-
-      // Escala según perspectiva (ligeramente mayor en la parte inferior)
       const depthScale = 0.82 + 0.18 * ((Math.sin(angle) + 1) / 2);
-      const bodyLen = W * 0.48 * depthScale;
-
+      const bodyLen = size * 0.22 * depthScale; // más pequeño relativo al canvas grande
       ctx.save();
       ctx.translate(px, py);
       ctx.rotate(heading);
-
-      // Estela de agua (ondas concéntricas semitransparentes)
-      for (let i = 1; i <= 3; i++) {
-        ctx.beginPath();
-        ctx.ellipse(
-          -bodyLen * (0.15 + i * 0.18), 0,
-          bodyLen * 0.12 * i,
-          bodyLen * 0.06 * i,
-          0, 0, Math.PI * 2
-        );
-        ctx.strokeStyle = `rgba(255,255,255,${0.12 - i * 0.03})`;
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-
       drawShark(ctx, bodyLen);
       ctx.restore();
-
       rafRef.current = requestAnimationFrame(tick);
     }
 
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [color, size]);
+  }, [color, size, qrSize]);
 
   return (
     <canvas
@@ -342,51 +324,45 @@ function SharkOverlay({ color, size = 160, qrSize }: { color: string; size?: num
         width: '100%',
         height: '100%',
         pointerEvents: 'none',
-        borderRadius: '10px',
       }}
     />
   );
 }
 
 // ─── QR con Tiburón ──────────────────────────────────────────────────────────
-function QRWithShark({
-  value,
-  color,
-  size = 160,
-}: {
+function QRWithShark({ value, color, size = 140 }: {
   value: string;
   color: string;
   size?: number;
 }) {
-  // El canvas del tiburón es más grande que el QR para que
-  // la órbita quede en el anillo exterior, nunca encima del código.
-  const padding = Math.round(size * 0.38); // margen alrededor del QR
-  const canvasSize = size + padding * 2;
+  const padding = Math.round(size * 0.32);       // margen alrededor del QR
+  const canvasSize = size + padding * 2;          // canvas más grande
 
   return (
-    <div
-      style={{
-        position: 'relative',
-        width: canvasSize,
-        height: canvasSize,
-        borderRadius: '10px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-      }}
-    >
-      {/* QR estático centrado, sin nada encima */}
-      <div style={{ position: 'relative', zIndex: 1, borderRadius: '8px', overflow: 'hidden' }}>
+    <div style={{ position: 'relative', width: canvasSize, height: canvasSize }}>
+
+      {/* QR centrado con fondo BLANCO — crítico para que los lectores funcionen */}
+      <div style={{
+        position: 'absolute',
+        top: padding,
+        left: padding,
+        width: size,
+        height: size,
+        borderRadius: '8px',
+        overflow: 'hidden',
+        background: '#ffffff',    // ← fondo blanco, no transparent
+        zIndex: 1,
+      }}>
         <QRCode
           value={value}
           size={size}
           bgColor="#ffffff"
-          fgColor={color}
+          fgColor="#000000"        // ← negro sobre blanco, máximo contraste
           style={{ display: 'block' }}
         />
       </div>
 
-      {/* Tiburón en canvas más grande, nada en el anillo exterior */}
+      {/* Canvas del tiburón — cubre todo el área pero la órbita evita el QR */}
       <SharkOverlay color={color} size={canvasSize} qrSize={size} />
     </div>
   );
