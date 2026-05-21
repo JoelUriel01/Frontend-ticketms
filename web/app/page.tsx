@@ -7,12 +7,47 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 
 gsap.registerPlugin(ScrollTrigger);
 
-const EVENTS_PREVIEW = [
-  { id: 1, name: "Travis Scott – Utopia Tour", venue: "Foro Sol", date: "Jun 14", category: "Música", spots: 12, color: "#FF4D00" },
-  { id: 2, name: "Chivas vs América – Clásico", venue: "Estadio Akron", date: "Jun 21", category: "Deporte", spots: 44, color: "#CC0000" },
-  { id: 3, name: "Cirque du Soleil – Alegría", venue: "Arena CDMX", date: "Jul 3", category: "Teatro", spots: 87, color: "#7B2FBE" },
-  { id: 4, name: "Bad Bunny – El Último Tour", venue: "Estadio GNP", date: "Jul 18", category: "Música", spots: 5, color: "#FF4D00" },
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:3001";
+
+// IDs de los eventos destacados que quieres mostrar
+const FEATURED_EVENT_IDS = [
+  "176f477f-0351-46a6-8ffb-4afe2a6d3e96",
+  "4b435c7d-a432-4c25-98f8-a7b019324409",
 ];
+
+const CATEGORY_COLORS: Record<string, string> = {
+  música: "#FF4D00",
+  music: "#FF4D00",
+  deporte: "#CC0000",
+  sport: "#CC0000",
+  sports: "#CC0000",
+  teatro: "#7B2FBE",
+  theatre: "#7B2FBE",
+  theater: "#7B2FBE",
+  festival: "#0EA5E9",
+  familia: "#16A34A",
+  default: "#FF4D00",
+};
+
+function getCategoryColor(category: string): string {
+  const key = category?.toLowerCase() ?? "";
+  return (
+    CATEGORY_COLORS[key] ??
+    Object.entries(CATEGORY_COLORS).find(([k]) => key.includes(k))?.[1] ??
+    CATEGORY_COLORS.default
+  );
+}
+
+interface EventPreview {
+  id: string;
+  name: string;
+  venue: string;
+  date: string;
+  category: string;
+  spots: number;
+  color: string;
+}
 
 export default function Home() {
   const router = useRouter();
@@ -25,6 +60,57 @@ export default function Home() {
   const statsRef = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [featuredEvents, setFeaturedEvents] = useState<EventPreview[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
+
+  // Fetch de los eventos destacados por ID
+  useEffect(() => {
+    async function loadFeaturedEvents() {
+      try {
+        const results = await Promise.allSettled(
+          FEATURED_EVENT_IDS.map((id) =>
+            fetch(`${API_BASE_URL}/events/${id}`).then((r) => {
+              if (!r.ok) throw new Error(`Error ${r.status}`);
+              return r.json();
+            })
+          )
+        );
+
+        const events: EventPreview[] = results
+          .filter((r): r is PromiseFulfilledResult<any> => r.status === "fulfilled")
+          .map((r) => {
+            const e = r.value;
+            const category = e.category ?? e.type ?? e.genre ?? "Evento";
+            const rawDate = e.date ?? e.start_date ?? e.startDate ?? e.event_date ?? "";
+            const date = rawDate
+              ? new Date(rawDate).toLocaleDateString("es-MX", { month: "short", day: "numeric" })
+              : "–";
+            const venue =
+              e.venue ?? e.location ?? e.place ?? e.stadium ?? e.venue_name ?? "–";
+            const spots =
+              e.available_tickets ?? e.spots ?? e.capacity ?? e.available ?? 0;
+
+            return {
+              id: e.id ?? e._id,
+              name: e.name ?? e.title ?? e.event_name ?? "Sin nombre",
+              venue,
+              date,
+              category,
+              spots,
+              color: getCategoryColor(category),
+            };
+          });
+
+        setFeaturedEvents(events);
+      } catch (err) {
+        console.error("Error cargando eventos destacados:", err);
+      } finally {
+        setEventsLoading(false);
+      }
+    }
+
+    loadFeaturedEvents();
+  }, []);
 
   useEffect(() => {
     const ctx = gsap.context(() => {
@@ -294,38 +380,59 @@ export default function Home() {
         </div>
 
         <div ref={cardsRef} className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
-          {EVENTS_PREVIEW.map((event) => (
-            <div
-              key={event.id}
-              className="event-card group relative rounded-2xl md:rounded-3xl overflow-hidden cursor-pointer border border-zinc-800 hover:border-zinc-600 transition-all duration-300 hover:-translate-y-1"
-              style={{ background: "#111111" }}
-              onClick={() => router.push(`/events/${event.id}`)}
-            >
-              <div className="absolute top-0 left-0 right-0 h-1" style={{ background: event.color }} />
-              <div className="p-5 md:p-7">
-                <div className="flex items-start justify-between mb-4 md:mb-6">
-                  <span
-                    className="text-xs font-semibold uppercase tracking-widest px-3 py-1 rounded-full"
-                    style={{ background: `${event.color}20`, color: event.color }}
-                  >
-                    {event.category}
-                  </span>
-                  <span className="text-sm text-zinc-500">{event.date}</span>
+          {eventsLoading
+            ? Array.from({ length: 2 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="event-card relative rounded-2xl md:rounded-3xl overflow-hidden border border-zinc-800 animate-pulse"
+                  style={{ background: "#111111" }}
+                >
+                  <div className="absolute top-0 left-0 right-0 h-1 bg-zinc-700" />
+                  <div className="p-5 md:p-7">
+                    <div className="flex items-start justify-between mb-4 md:mb-6">
+                      <div className="h-6 w-20 rounded-full bg-zinc-800" />
+                      <div className="h-4 w-14 rounded bg-zinc-800" />
+                    </div>
+                    <div className="h-6 w-3/4 rounded bg-zinc-800 mb-2" />
+                    <div className="h-4 w-1/2 rounded bg-zinc-800 mb-4 md:mb-6" />
+                    <div className="flex items-center justify-between">
+                      <div className="h-3 w-28 rounded bg-zinc-800" />
+                    </div>
+                  </div>
                 </div>
-                <h3 className="text-base md:text-xl font-bold mb-1.5 group-hover:text-[#FF4D00] transition-colors">{event.name}</h3>
-                <p className="text-sm text-zinc-500 mb-4 md:mb-6">{event.venue}</p>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-zinc-600">{event.spots} lugares disponibles</span>
-                  <span
-                    className="text-sm font-semibold flex items-center gap-1 md:opacity-0 md:translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300"
-                    style={{ color: "#FF4D00" }}
-                  >
-                    Comprar →
-                  </span>
+              ))
+            : featuredEvents.map((event) => (
+                <div
+                  key={event.id}
+                  className="event-card group relative rounded-2xl md:rounded-3xl overflow-hidden cursor-pointer border border-zinc-800 hover:border-zinc-600 transition-all duration-300 hover:-translate-y-1"
+                  style={{ background: "#111111" }}
+                  onClick={() => router.push(`/events/${event.id}`)}
+                >
+                  <div className="absolute top-0 left-0 right-0 h-1" style={{ background: event.color }} />
+                  <div className="p-5 md:p-7">
+                    <div className="flex items-start justify-between mb-4 md:mb-6">
+                      <span
+                        className="text-xs font-semibold uppercase tracking-widest px-3 py-1 rounded-full"
+                        style={{ background: `${event.color}20`, color: event.color }}
+                      >
+                        {event.category}
+                      </span>
+                      <span className="text-sm text-zinc-500">{event.date}</span>
+                    </div>
+                    <h3 className="text-base md:text-xl font-bold mb-1.5 group-hover:text-[#FF4D00] transition-colors">{event.name}</h3>
+                    <p className="text-sm text-zinc-500 mb-4 md:mb-6">{event.venue}</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-zinc-600">{event.spots} lugares disponibles</span>
+                      <span
+                        className="text-sm font-semibold flex items-center gap-1 md:opacity-0 md:translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300"
+                        style={{ color: "#FF4D00" }}
+                      >
+                        Comprar →
+                      </span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))}
+              ))}
         </div>
 
         {/* Ver todos — mobile only */}
