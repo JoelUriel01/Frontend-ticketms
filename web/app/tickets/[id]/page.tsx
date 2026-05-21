@@ -98,7 +98,7 @@ function ConfettiCanvas({ active }: { active: boolean }) {
 // cola en horquilla, aletas pectorales y un ojo lateral.
 // La animación es continua y fluida — imposible capturar en foto estática.
 //
-function SharkOverlay({ color, size = 160 }: { color: string; size?: number }) {
+function SharkOverlay({ color, size = 160, qrSize }: { color: string; size?: number; qrSize?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef    = useRef<number>(0);
 
@@ -114,8 +114,9 @@ function SharkOverlay({ color, size = 160 }: { color: string; size?: number }) {
     // Órbita elíptica centrada en el QR
     const cx = W / 2;
     const cy = H / 2;
-    const rx = W * 0.34;   // radio horizontal de la órbita
-    const ry = H * 0.26;   // radio vertical
+    const safeRadius = ((qrSize ?? size * 0.6) / 2) + size * 0.12;
+    const rx = safeRadius * 1.05;
+    const ry = safeRadius * 0.72;
     const speed = 0.018;   // rad / frame  (~60 fps → ~6 s por vuelta)
 
     // Extrae componentes RGB del color del evento para matiz propio
@@ -357,29 +358,36 @@ function QRWithShark({
   color: string;
   size?: number;
 }) {
+  // El canvas del tiburón es más grande que el QR para que
+  // la órbita quede en el anillo exterior, nunca encima del código.
+  const padding = Math.round(size * 0.38); // margen alrededor del QR
+  const canvasSize = size + padding * 2;
+
   return (
     <div
       style={{
         position: 'relative',
-        width: size,
-        height: size,
+        width: canvasSize,
+        height: canvasSize,
         borderRadius: '10px',
-        overflow: 'hidden',
-        // Leve backdrop para que el tiburón destaque
-        background: 'rgba(255,255,255,0.03)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
       }}
     >
-      {/* QR estático debajo */}
-      <QRCode
-        value={value}
-        size={size}
-        bgColor="transparent"
-        fgColor={color}
-        style={{ display: 'block' }}
-      />
+      {/* QR estático centrado, sin nada encima */}
+      <div style={{ position: 'relative', zIndex: 1, borderRadius: '8px', overflow: 'hidden' }}>
+        <QRCode
+          value={value}
+          size={size}
+          bgColor="#ffffff"
+          fgColor={color}
+          style={{ display: 'block' }}
+        />
+      </div>
 
-      {/* Tiburón encima */}
-      <SharkOverlay color={color} size={size} />
+      {/* Tiburón en canvas más grande, nada en el anillo exterior */}
+      <SharkOverlay color={color} size={canvasSize} qrSize={size} />
     </div>
   );
 }
