@@ -39,16 +39,6 @@ export default function DashboardPage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
 
-
-    useEffect(() => {
-    async function debugToken() {
-      const { data: { session } } = await supabase.auth.getSession();
-      console.log('🔑 ACCESS TOKEN:', session?.access_token);
-    }
-
-    debugToken();
-  }, []);
-  
 useEffect(() => {
   async function loadData() {
     // 1) Obtener usuario de Supabase Auth
