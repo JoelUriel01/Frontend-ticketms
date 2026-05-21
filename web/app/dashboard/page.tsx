@@ -183,11 +183,9 @@ async function handleUpdateProfile(event: React.FormEvent<HTMLFormElement>) {
         ) : null}
 
         <div className="mt-6 grid gap-4 rounded-xl border border-white/10 bg-black/20 p-5 text-sm text-white/80">
+
           <p>
-            <span className="font-medium text-white">Auth ID:</span> {authUser?.id}
-          </p>
-          <p>
-            <span className="font-medium text-white">Auth email:</span> {authUser?.email}
+            <span className="font-medium text-white"> email:</span> {authUser?.email}
           </p>
           <p>
             <span className="font-medium text-white">Nombre en app:</span> {appUser?.fullName}
