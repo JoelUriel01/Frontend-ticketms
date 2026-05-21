@@ -266,7 +266,7 @@ export default function Home() {
             </h2>
           </div>
           <button
-            onClick={() => router.push("/events")}
+            onClick={() => router.push("/discover")}
             className="hidden md:block text-sm text-zinc-400 hover:text-white border border-zinc-700 px-5 py-2 rounded-full transition-all hover:border-zinc-400"
           >
             Ver todos →
