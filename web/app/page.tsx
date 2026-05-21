@@ -1,65 +1,395 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+gsap.registerPlugin(ScrollTrigger);
+
+const EVENTS_PREVIEW = [
+  { id: 1, name: "Travis Scott – Utopia Tour", venue: "Foro Sol", date: "Jun 14", category: "Música", spots: 12, color: "#FF4D00" },
+  { id: 2, name: "Chivas vs América – Clásico", venue: "Estadio Akron", date: "Jun 21", category: "Deporte", spots: 44, color: "#CC0000" },
+  { id: 3, name: "Cirque du Soleil – Alegría", venue: "Arena CDMX", date: "Jul 3", category: "Teatro", spots: 87, color: "#7B2FBE" },
+  { id: 4, name: "Bad Bunny – El Último Tour", venue: "Estadio GNP", date: "Jul 18", category: "Música", spots: 5, color: "#FF4D00" },
+];
 
 export default function Home() {
+  const router = useRouter();
+  const heroRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const subtitleRef = useRef<HTMLParagraphElement>(null);
+  const ctaRef = useRef<HTMLDivElement>(null);
+  const tickerRef = useRef<HTMLDivElement>(null);
+  const cardsRef = useRef<HTMLDivElement>(null);
+  const statsRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const ctx = gsap.context(() => {
+      // Nav entrance
+      gsap.from(navRef.current, {
+        y: -60,
+        opacity: 0,
+        duration: 0.8,
+        ease: "power3.out",
+      });
+
+      // Hero title — split word animation
+      const words = titleRef.current?.querySelectorAll(".word");
+      if (words) {
+        gsap.from(words, {
+          y: 120,
+          opacity: 0,
+          rotateX: -60,
+          duration: 1.1,
+          stagger: 0.08,
+          ease: "expo.out",
+          delay: 0.3,
+        });
+      }
+
+      // Subtitle
+      gsap.from(subtitleRef.current, {
+        y: 30,
+        opacity: 0,
+        duration: 0.9,
+        delay: 0.9,
+        ease: "power3.out",
+      });
+
+      // CTA buttons
+      gsap.from(ctaRef.current?.children ?? [], {
+        y: 30,
+        opacity: 0,
+        duration: 0.7,
+        stagger: 0.1,
+        delay: 1.1,
+        ease: "power3.out",
+      });
+
+      // Ticker loop
+      const ticker = tickerRef.current;
+      if (ticker) {
+        const clone = ticker.innerHTML;
+        ticker.innerHTML += clone;
+        gsap.to(ticker, {
+          xPercent: -50,
+          duration: 22,
+          ease: "none",
+          repeat: -1,
+        });
+      }
+
+      // Cards on scroll
+      gsap.from(".event-card", {
+        scrollTrigger: {
+          trigger: cardsRef.current,
+          start: "top 80%",
+        },
+        y: 80,
+        opacity: 0,
+        duration: 0.8,
+        stagger: 0.12,
+        ease: "power3.out",
+      });
+
+      // Stats
+      gsap.from(".stat-item", {
+        scrollTrigger: {
+          trigger: statsRef.current,
+          start: "top 85%",
+        },
+        scale: 0.85,
+        opacity: 0,
+        duration: 0.7,
+        stagger: 0.1,
+        ease: "back.out(1.5)",
+      });
+
+      // Parallax on hero badge
+      gsap.to(".hero-badge", {
+        y: -40,
+        scrollTrigger: {
+          trigger: heroRef.current,
+          scrub: 1.5,
+        },
+      });
+
+      gsap.to(".hero-circle", {
+        y: 60,
+        scrollTrigger: {
+          trigger: heroRef.current,
+          scrub: 2,
+        },
+      });
+    });
+
+    return () => ctx.revert();
+  }, []);
+
+  const heroTitle = ["Tus", "boletos,", "sin", "complicaciones."];
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="min-h-screen bg-[#0A0A0A] text-white font-sans overflow-x-hidden">
+      {/* ─── Navbar ─── */}
+      <nav
+        ref={navRef}
+        className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-8 py-5"
+        style={{ backdropFilter: "blur(18px)", background: "rgba(10,10,10,0.7)", borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+      >
+        <span className="text-xl font-bold tracking-tight">
+          <span style={{ color: "#FF4D00" }}>ticket</span>flow
+        </span>
+
+        <div className="hidden md:flex items-center gap-8 text-sm text-zinc-400">
+          <button onClick={() => router.push("/events")} className="hover:text-white transition-colors">Eventos</button>
+          <button onClick={() => router.push("/dashboard")} className="hover:text-white transition-colors">Dashboard</button>
+          <button onClick={() => router.push("/tickets/me")} className="hover:text-white transition-colors">Mis boletos</button>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => router.push("/login")}
+            className="text-sm px-4 py-2 rounded-full border border-zinc-700 text-zinc-300 hover:border-zinc-400 hover:text-white transition-all"
+          >
+            Iniciar sesión
+          </button>
+          <button
+            onClick={() => router.push("/register")}
+            className="text-sm px-4 py-2 rounded-full text-black font-semibold transition-all hover:scale-105"
+            style={{ background: "#FF4D00" }}
+          >
+            Registrarse
+          </button>
+        </div>
+      </nav>
+
+      {/* ─── Hero ─── */}
+      <section
+        ref={heroRef}
+        className="relative min-h-screen flex flex-col items-center justify-center px-6 pt-28 pb-16 text-center overflow-hidden"
+      >
+        {/* Background effects */}
+        <div
+          className="hero-circle absolute top-[-180px] right-[-180px] w-[600px] h-[600px] rounded-full opacity-20 pointer-events-none"
+          style={{ background: "radial-gradient(circle, #FF4D00 0%, transparent 70%)" }}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+        <div
+          className="absolute bottom-[-200px] left-[-150px] w-[500px] h-[500px] rounded-full opacity-10 pointer-events-none"
+          style={{ background: "radial-gradient(circle, #7B2FBE 0%, transparent 70%)" }}
+        />
+
+        {/* Badge */}
+        <div
+          className="hero-badge inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium mb-10 border"
+          style={{ background: "rgba(255,77,0,0.1)", borderColor: "rgba(255,77,0,0.3)", color: "#FF8A65" }}
+        >
+          <span className="w-2 h-2 rounded-full bg-[#FF4D00] animate-pulse" />
+          Disponible ahora — miles de eventos en México
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+
+        {/* Title */}
+        <h1
+          ref={titleRef}
+          className="max-w-4xl text-6xl md:text-8xl font-black tracking-tighter leading-none mb-8"
+          style={{ perspective: "800px", fontFamily: "'DM Serif Display', Georgia, serif" }}
+        >
+          {heroTitle.map((word, i) => (
+            <span key={i} className="word inline-block mr-4" style={{ display: "inline-block" }}>
+              {word}
+            </span>
+          ))}
+        </h1>
+
+        <p
+          ref={subtitleRef}
+          className="max-w-lg text-lg md:text-xl text-zinc-400 leading-relaxed mb-12"
+        >
+          Conciertos, deportes, teatro y más. Compra, transfiere y valida tus boletos en segundos.
+        </p>
+
+        {/* CTAs */}
+        <div ref={ctaRef} className="flex flex-col sm:flex-row items-center gap-4">
+          <button
+            onClick={() => router.push("/events")}
+            className="group relative px-8 py-4 rounded-full font-bold text-base text-white overflow-hidden transition-all hover:scale-105 active:scale-95"
+            style={{ background: "#FF4D00" }}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            <span className="relative z-10">Explorar eventos →</span>
+            <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity" style={{ background: "#FF6B35" }} />
+          </button>
+
+          <button
+            onClick={() => router.push("/tickets/me")}
+            className="px-8 py-4 rounded-full font-medium text-base border border-zinc-700 text-zinc-300 hover:border-zinc-400 hover:text-white transition-all hover:bg-zinc-900"
           >
-            Documentation
-          </a>
+            Ver mis boletos
+          </button>
         </div>
-      </main>
+
+        {/* Floating stat badges */}
+        <div className="hidden md:flex absolute left-12 bottom-32 flex-col gap-2 text-left">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+            <p className="text-2xl font-bold">+200k</p>
+            <p className="text-xs text-zinc-500">boletos vendidos</p>
+          </div>
+        </div>
+        <div className="hidden md:flex absolute right-12 bottom-40 flex-col gap-2 text-left">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+            <p className="text-2xl font-bold">4.9 ★</p>
+            <p className="text-xs text-zinc-500">calificación promedio</p>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── Ticker ─── */}
+      <div
+        className="py-5 border-y overflow-hidden"
+        style={{ borderColor: "rgba(255,255,255,0.07)", background: "rgba(255,77,0,0.04)" }}
+      >
+        <div ref={tickerRef} className="flex gap-12 whitespace-nowrap" style={{ width: "max-content" }}>
+          {["🎵 Música", "⚽ Deportes", "🎭 Teatro", "🎪 Festivales", "🏀 Básquetbol", "🎬 Cine", "🎤 Stand-up", "🎻 Clásica", "🥊 Lucha libre", "🎡 Familia"].map((item, i) => (
+            <span key={i} className="text-sm font-medium text-zinc-400 tracking-widest uppercase">{item}</span>
+          ))}
+        </div>
+      </div>
+
+      {/* ─── Events Preview ─── */}
+      <section className="px-6 md:px-16 py-24">
+        <div className="flex items-end justify-between mb-12">
+          <div>
+            <p className="text-xs uppercase tracking-widest text-zinc-500 mb-3">Destacados</p>
+            <h2 className="text-4xl md:text-5xl font-black tracking-tight" style={{ fontFamily: "'DM Serif Display', Georgia, serif" }}>
+              Eventos que no te<br />puedes perder
+            </h2>
+          </div>
+          <button
+            onClick={() => router.push("/events")}
+            className="hidden md:block text-sm text-zinc-400 hover:text-white border border-zinc-700 px-5 py-2 rounded-full transition-all hover:border-zinc-400"
+          >
+            Ver todos →
+          </button>
+        </div>
+
+        <div ref={cardsRef} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {EVENTS_PREVIEW.map((event) => (
+            <div
+              key={event.id}
+              className="event-card group relative rounded-3xl overflow-hidden cursor-pointer border border-zinc-800 hover:border-zinc-600 transition-all duration-300 hover:-translate-y-1"
+              style={{ background: "#111111" }}
+              onClick={() => router.push(`/events/${event.id}`)}
+            >
+              {/* Color strip */}
+              <div className="absolute top-0 left-0 right-0 h-1" style={{ background: event.color }} />
+
+              <div className="p-7">
+                <div className="flex items-start justify-between mb-6">
+                  <span
+                    className="text-xs font-semibold uppercase tracking-widest px-3 py-1 rounded-full"
+                    style={{ background: `${event.color}20`, color: event.color }}
+                  >
+                    {event.category}
+                  </span>
+                  <span className="text-sm text-zinc-500">{event.date}</span>
+                </div>
+
+                <h3 className="text-xl font-bold mb-2 group-hover:text-[#FF4D00] transition-colors">{event.name}</h3>
+                <p className="text-sm text-zinc-500 mb-6">{event.venue}</p>
+
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-zinc-600">{event.spots} lugares disponibles</span>
+                  <span
+                    className="text-sm font-semibold flex items-center gap-1 opacity-0 group-hover:opacity-100 translate-x-2 group-hover:translate-x-0 transition-all duration-300"
+                    style={{ color: "#FF4D00" }}
+                  >
+                    Comprar boletos →
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ─── Stats ─── */}
+      <section
+        ref={statsRef}
+        className="mx-6 md:mx-16 mb-24 rounded-3xl p-12 grid grid-cols-2 md:grid-cols-4 gap-8"
+        style={{ background: "#111111", border: "1px solid rgba(255,255,255,0.07)" }}
+      >
+        {[
+          { value: "500+", label: "Eventos activos" },
+          { value: "200k+", label: "Usuarios registrados" },
+          { value: "98%", label: "Pagos exitosos" },
+          { value: "24/7", label: "Soporte disponible" },
+        ].map((stat, i) => (
+          <div key={i} className="stat-item text-center">
+            <p className="text-4xl md:text-5xl font-black mb-2" style={{ color: i === 0 ? "#FF4D00" : "white" }}>{stat.value}</p>
+            <p className="text-sm text-zinc-500">{stat.label}</p>
+          </div>
+        ))}
+      </section>
+
+      {/* ─── Navigation Grid ─── */}
+      <section className="px-6 md:px-16 pb-24">
+        <p className="text-xs uppercase tracking-widest text-zinc-500 mb-4">Accesos rápidos</p>
+        <h2 className="text-3xl md:text-4xl font-black tracking-tight mb-10" style={{ fontFamily: "'DM Serif Display', Georgia, serif" }}>
+          Todo lo que necesitas
+        </h2>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {[
+            { label: "Dashboard", desc: "Tu panel de control", path: "/dashboard", icon: "⚡" },
+            { label: "Eventos", desc: "Explorar todo el catálogo", path: "/events", icon: "🎟️" },
+            { label: "Mis boletos", desc: "Ver y gestionar boletos", path: "/tickets/me", icon: "📲" },
+            { label: "Checkout", desc: "Finalizar una compra", path: "/checkout", icon: "💳" },
+            { label: "Registrarse", desc: "Crear una cuenta nueva", path: "/register", icon: "✨" },
+            { label: "Iniciar sesión", desc: "Acceder a tu cuenta", path: "/login", icon: "🔑" },
+          ].map((item) => (
+            <button
+              key={item.path}
+              onClick={() => router.push(item.path)}
+              className="group text-left p-6 rounded-2xl border border-zinc-800 hover:border-zinc-600 transition-all duration-200 hover:bg-zinc-900 active:scale-95"
+            >
+              <span className="text-2xl mb-3 block">{item.icon}</span>
+              <p className="font-bold text-base mb-1 group-hover:text-[#FF4D00] transition-colors">{item.label}</p>
+              <p className="text-xs text-zinc-500">{item.desc}</p>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* ─── CTA Final ─── */}
+      <section
+        className="mx-6 md:mx-16 mb-24 rounded-3xl p-12 md:p-16 text-center relative overflow-hidden"
+        style={{ background: "#FF4D00" }}
+      >
+        <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: "radial-gradient(circle at 70% 30%, #FF8A65 0%, transparent 60%)" }} />
+        <h2 className="relative text-4xl md:text-6xl font-black tracking-tight mb-6 text-white" style={{ fontFamily: "'DM Serif Display', Georgia, serif" }}>
+          Listo para vivir<br />la experiencia?
+        </h2>
+        <p className="relative text-orange-100 mb-10 text-lg">Regístrate gratis y empieza a comprar boletos hoy mismo.</p>
+        <button
+          onClick={() => router.push("/register")}
+          className="relative inline-block px-10 py-4 bg-black text-white font-bold rounded-full text-base hover:bg-zinc-900 transition-all hover:scale-105 active:scale-95"
+        >
+          Crear cuenta gratuita →
+        </button>
+      </section>
+
+      {/* ─── Footer ─── */}
+      <footer className="px-8 pb-12 text-center border-t border-zinc-900 pt-10">
+        <p className="text-xl font-bold mb-1">
+          <span style={{ color: "#FF4D00" }}>ticket</span>flow
+        </p>
+        <p className="text-xs text-zinc-600">© 2025 · Todos los derechos reservados</p>
+      </footer>
+
+      <style jsx global>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display&display=swap');
+      `}</style>
     </div>
   );
 }
