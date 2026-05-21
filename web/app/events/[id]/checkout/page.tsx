@@ -80,6 +80,17 @@ export default function CheckoutPage() {
   const [buying, setBuying] = useState(false);
   const [error, setError] = useState('');
 
+
+  useEffect(() => {
+  const supabase = createClient();
+  supabase.auth.getSession().then(({ data: { session } }) => {
+    if (!session) {
+      router.replace(`/login?redirectTo=/checkout/${id}`);
+    }
+  });
+}, [id, router]);
+
+
   useEffect(() => {
     if (!id) return;
     fetch(`${API_BASE_URL}/events/${id}`)
