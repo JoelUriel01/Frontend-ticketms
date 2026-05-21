@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import QRCode from 'react-qr-code';
+import { API_BASE_URL } from '@/lib/supabase/api';
 
 
 interface Ticket {
@@ -129,7 +130,7 @@ const isBlocked = ['USED', 'REVOKED', 'EXPIRED'].includes(normalizedStatus);
       return;
     }
 
-    const res = await fetch(`http://localhost:3001/tickets/${ticketId}/qr-token`, {
+    const res = await fetch(`${API_BASE_URL}/tickets/${ticketId}/qr-token`, {
       headers: {
         Authorization: `Bearer ${session.access_token}`,
       },
@@ -185,7 +186,7 @@ useEffect(() => {
         return;
       }
 
-      const res = await fetch(`http://localhost:3001/tickets/${id}`, {
+      const res = await fetch(`${API_BASE_URL}/tickets/${id}`, {
         headers: {
           Authorization: `Bearer ${session.access_token}`,
         },
