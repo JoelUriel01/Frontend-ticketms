@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { createBrowserClient } from "@supabase/ssr";
 
 gsap.registerPlugin(ScrollTrigger);
 
@@ -49,8 +50,19 @@ interface EventPreview {
   color: string;
 }
 
+interface UserSession {
+  email: string;
+  name: string | null;
+  avatarUrl: string | null;
+}
+
 export default function Home() {
   const router = useRouter();
+const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);  
+  
   const heroRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const subtitleRef = useRef<HTMLParagraphElement>(null);
@@ -62,6 +74,46 @@ export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [featuredEvents, setFeaturedEvents] = useState<EventPreview[]>([]);
   const [eventsLoading, setEventsLoading] = useState(true);
+  const [userSession, setUserSession] = useState<UserSession | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+
+  // Sesión de usuario
+  useEffect(() => {
+    async function loadSession() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const u = session.user;
+          setUserSession({
+            email: u.email ?? "",
+            name: u.user_metadata?.full_name ?? u.user_metadata?.name ?? null,
+            avatarUrl: u.user_metadata?.avatar_url ?? null,
+          });
+        }
+      } catch (err) {
+        console.error("Error cargando sesión:", err);
+      } finally {
+        setSessionLoading(false);
+      }
+    }
+    loadSession();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const u = session.user;
+        setUserSession({
+          email: u.email ?? "",
+          name: u.user_metadata?.full_name ?? u.user_metadata?.name ?? null,
+          avatarUrl: u.user_metadata?.avatar_url ?? null,
+        });
+      } else {
+        setUserSession(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [supabase]);
 
   // Fetch de los eventos destacados por ID
   useEffect(() => {
@@ -154,6 +206,17 @@ export default function Home() {
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setUserSession(null);
+    setProfileMenuOpen(false);
+    router.refresh();
+  };
+
+  const userInitial = userSession?.name
+    ? userSession.name.charAt(0).toUpperCase()
+    : userSession?.email.charAt(0).toUpperCase();
+
   const heroTitle = ["Tus", "boletos,", "sin", "complicaciones."];
 
   return (
@@ -179,29 +242,104 @@ export default function Home() {
 
           {/* Desktop CTAs */}
           <div className="hidden md:flex items-center gap-3">
-            <button
-              onClick={() => router.push("/login")}
-              className="text-sm px-4 py-2 rounded-full border border-zinc-700 text-zinc-300 hover:border-zinc-400 hover:text-white transition-all"
-            >
-              Iniciar sesión
-            </button>
-            <button
-              onClick={() => router.push("/register")}
-              className="text-sm px-4 py-2 rounded-full text-black font-semibold transition-all hover:scale-105"
-              style={{ background: "#FF4D00" }}
-            >
-              Registrarse
-            </button>
+            {sessionLoading ? (
+              <div className="w-24 h-9 rounded-full bg-zinc-800 animate-pulse" />
+            ) : userSession ? (
+              <div className="relative">
+                <button
+                  onClick={() => setProfileMenuOpen((v) => !v)}
+                  className="flex items-center gap-2.5 px-3 py-1.5 rounded-full border border-zinc-700 hover:border-zinc-500 transition-all"
+                >
+                  {userSession.avatarUrl ? (
+                    <img src={userSession.avatarUrl} alt="avatar" className="w-7 h-7 rounded-full object-cover" />
+                  ) : (
+                    <div
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                      style={{ background: "#FF4D00" }}
+                    >
+                      {userInitial}
+                    </div>
+                  )}
+                  <span className="text-sm text-zinc-200 max-w-[140px] truncate">
+                    {userSession.name ?? userSession.email}
+                  </span>
+                  <svg
+                    className="w-3.5 h-3.5 text-zinc-500 transition-transform"
+                    style={{ transform: profileMenuOpen ? "rotate(180deg)" : "none" }}
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {/* Dropdown profile menu */}
+                {profileMenuOpen && (
+                  <div
+                    className="absolute right-0 top-full mt-2 w-52 rounded-2xl border border-zinc-800 py-1.5 z-50"
+                    style={{ background: "rgba(18,18,18,0.98)", backdropFilter: "blur(16px)" }}
+                  >
+                    <div className="px-4 py-2.5 border-b border-zinc-800 mb-1">
+                      <p className="text-xs text-zinc-500 truncate">{userSession.email}</p>
+                    </div>
+                    {[
+                      { label: "Mis boletos", path: "/tickets/me", icon: "🎟️" },
+                      { label: "Dashboard", path: "/dashboard", icon: "⚡" },
+                    ].map((item) => (
+                      <button
+                        key={item.path}
+                        onClick={() => { router.push(item.path); setProfileMenuOpen(false); }}
+                        className="w-full text-left px-4 py-2 text-sm text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors flex items-center gap-2.5"
+                      >
+                        <span>{item.icon}</span> {item.label}
+                      </button>
+                    ))}
+                    <div className="border-t border-zinc-800 mt-1 pt-1">
+                      <button
+                        onClick={handleSignOut}
+                        className="w-full text-left px-4 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-zinc-800 transition-colors flex items-center gap-2.5"
+                      >
+                        <span>🚪</span> Cerrar sesión
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <button
+                  onClick={() => router.push("/login")}
+                  className="text-sm px-4 py-2 rounded-full border border-zinc-700 text-zinc-300 hover:border-zinc-400 hover:text-white transition-all"
+                >
+                  Iniciar sesión
+                </button>
+                <button
+                  onClick={() => router.push("/register")}
+                  className="text-sm px-4 py-2 rounded-full text-black font-semibold transition-all hover:scale-105"
+                  style={{ background: "#FF4D00" }}
+                >
+                  Registrarse
+                </button>
+              </>
+            )}
           </div>
 
           {/* Mobile: login shortcut + hamburger */}
           <div className="flex md:hidden items-center gap-2">
-            <button
-              onClick={() => router.push("/login")}
-              className="text-xs px-3 py-1.5 rounded-full border border-zinc-700 text-zinc-300"
-            >
-              Entrar
-            </button>
+            {!sessionLoading && userSession ? (
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                style={{ background: "#FF4D00" }}
+              >
+                {userInitial}
+              </div>
+            ) : !sessionLoading ? (
+              <button
+                onClick={() => router.push("/login")}
+                className="text-xs px-3 py-1.5 rounded-full border border-zinc-700 text-zinc-300"
+              >
+                Entrar
+              </button>
+            ) : null}
             <button
               onClick={() => setMenuOpen((v) => !v)}
               className="w-9 h-9 flex flex-col items-center justify-center gap-1.5 rounded-xl border border-zinc-800 bg-zinc-900"
@@ -227,17 +365,23 @@ export default function Home() {
         <div
           className="md:hidden overflow-hidden transition-all duration-300"
           style={{
-            maxHeight: menuOpen ? "280px" : "0",
+            maxHeight: menuOpen ? "320px" : "0",
             borderTop: menuOpen ? "1px solid rgba(255,255,255,0.06)" : "none",
           }}
         >
           <div className="px-5 py-4 flex flex-col gap-1">
+            {userSession && (
+              <div className="px-4 py-2.5 mb-1 rounded-xl" style={{ background: "rgba(255,77,0,0.08)" }}>
+                <p className="text-xs text-zinc-400">Sesión iniciada como</p>
+                <p className="text-sm font-semibold text-white truncate">{userSession.name ?? userSession.email}</p>
+              </div>
+            )}
             {[
               { label: "Eventos", path: "/events" },
               { label: "Dashboard", path: "/dashboard" },
               { label: "Mis boletos", path: "/tickets/me" },
-              { label: "Registrarse", path: "/register", accent: true },
-            ].map((item) => (
+              ...(!userSession ? [{ label: "Registrarse", path: "/register", accent: true }] : []),
+            ].map((item: { label: string; path: string; accent?: boolean }) => (
               <button
                 key={item.path}
                 onClick={() => { router.push(item.path); setMenuOpen(false); }}
@@ -250,6 +394,14 @@ export default function Home() {
                 {item.label}
               </button>
             ))}
+            {userSession && (
+              <button
+                onClick={handleSignOut}
+                className="w-full text-left px-4 py-3 rounded-xl text-sm font-medium text-red-400 transition-colors hover:bg-zinc-900"
+              >
+                🚪 Cerrar sesión
+              </button>
+            )}
           </div>
         </div>
       </nav>
