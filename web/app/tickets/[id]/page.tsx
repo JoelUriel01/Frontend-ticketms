@@ -15,6 +15,22 @@ interface Ticket {
   quantity: number;
   status: string;
   createdAt: string;
+  price: string;        // ← agregar: precio de este boleto
+  currency: string;     // ← agregar
+  orderId?: string;
+  order?: {
+    id: string;
+    totalAmount: string;
+    currency: string;
+    status: string;
+  };
+  seat?: {             // ← agregar: asiento asignado (modo mapa)
+    id: string;
+    row: string;
+    number: number;
+    seatLabel: string;
+    section?: { code: string; label: string };
+  };
   event?: {
     id: string;
     title: string;
@@ -44,7 +60,6 @@ function colorFor(str: string) {
   return PALETTE[Math.abs(h) % PALETTE.length];
 }
 function initials(t: string) { return t.split(' ').slice(0,2).map(w=>w[0]).join('').toUpperCase(); }
-const TICKET_PRICE = 250;
 
 function ConfettiCanvas({ active }: { active: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -105,14 +120,18 @@ export default function TicketDetailPage() {
   const [qrLoading, setQrLoading] = useState(false);
   const [qrError, setQrError] = useState('');
 
-    const color = ticket?.event ? colorFor(ticket.event.title) : '#00c2b3';
+  const color = ticket?.event ? colorFor(ticket.event.title) : '#00c2b3';
   const abbr  = ticket?.event ? initials(ticket.event.title) : '';
-  const total = (ticket?.quantity ?? 0) * TICKET_PRICE;
+  const total = ticket?.order
+  ? Number(ticket.order.totalAmount)
+  : Number(ticket?.price ?? 0);
+
+  const currency = ticket?.order?.currency ?? ticket?.currency ?? 'MXN';
   const shortId = ticket?.id.slice(0, 8).toUpperCase() ?? '';
   
   const normalizedStatus = (ticket?.status ?? 'PENDING').toUpperCase();
-const isUsed = normalizedStatus === 'USED';
-const isBlocked = ['USED', 'REVOKED', 'EXPIRED'].includes(normalizedStatus);
+  const isUsed = normalizedStatus === 'USED';
+  const isBlocked = ['USED', 'REVOKED', 'EXPIRED'].includes(normalizedStatus);
 
 
   async function loadQrToken(ticketId: string) {
@@ -272,7 +291,26 @@ useEffect(() => {
                   <div className="dashed-line" />
                   <div className="notch right" />
                 </div>
+                
+                {/* Asiento — solo aparece en modo mapa */}
+                {ticket.seat && (
+                  <div className="ticket-field">
+                    <span className="field-label">Asiento</span>
+                    <span className="field-value">
+                      {ticket.seat.seatLabel ?? ticket.seat.id}
+                      {ticket.seat.section && ` — ${ticket.seat.section.label}`}
+                    </span>
+                  </div>
+                )}
+                <div className="ticket-field">
+  <span className="field-label">Recinto</span>
+  <span className="field-value">{ticket.event?.venueName ?? '—'}</span>
+</div>
 
+<div className="ticket-field">
+  <span className="field-label">Ciudad</span>
+  <span className="field-value">{ticket.event?.venueCity ?? '—'}</span>
+</div>
                 {/* Detalles del boleto */}
                 <div className="ticket-body">
                   <div className="ticket-fields">

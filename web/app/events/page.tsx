@@ -5,10 +5,24 @@ import { createClient } from '@/lib/supabase/client';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { API_BASE_URL } from '@/lib/supabase/api';
-import type { Variants } from 'framer-motion';
 
 
 /* ─── Types ─────────────────────────────────────────────── */
+interface TicketTypeRecord {
+  id: string;
+  name: string;
+  price: string; // serialized as string by the API (Decimal)
+  currency: string;
+  capacity: number;
+  description?: string;
+}
+
+interface SectionPriceRecord {
+  section: { code: string; label: string; colorHex: string };
+  price: string;
+  currency: string;
+}
+
 interface Event {
   id: string;
   title: string;
@@ -20,8 +34,11 @@ interface Event {
   isPublished: boolean;
   createdAt: string;
   updatedAt: string;
-  bannerUrl?: string;                                              // URL de imagen del banner
-  category?: 'music' | 'theater' | 'sport' | 'festival' | 'other'; // Categoría del evento
+  bannerUrl?: string;
+  category?: 'music' | 'theater' | 'sport' | 'festival' | 'other';
+  useVenueMap?: boolean;
+  ticketTypes?: TicketTypeRecord[];
+  eventSectionPrices?: SectionPriceRecord[];
 }
 
 interface Profile {
@@ -31,75 +48,40 @@ interface Profile {
   role: string;
 }
 
-/* ─── Animation Variants ─────────────────────────────────── */
-const containerVariants = {
-  hidden: {},
-  show: { transition: { staggerChildren: 0.07, delayChildren: 0.15 } },
-};
+// Las secciones del Auditorio ESCOM que corresponden al mapa HTML
+interface SectionPrice {
+  sectionCode: string;   // "IZQ" | "CTR" | "DER"
+  sectionLabel: string;  // "Izquierda" | "Central" | "Derecha"
+  colorHex: string;
+  price: string;         // string para el input, se convierte a número al enviar
+}
 
-const cardVariants: Variants = {
-  hidden: {
-    opacity: 0,
-    y: 24,
-  },
-  show: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      type: 'spring' as const,
-      damping: 26,
-      stiffness: 220,
-    },
-  },
-  exit: {
-    opacity: 0,
-    scale: 0.95,
-    transition: {
-      duration: 0.18,
-      ease: [0.4, 0, 1, 1],
-    },
-  },
-};
+// Ticket type libre (cuando no se usa el mapa)
+// `id` está presente al editar tipos existentes, ausente en nuevos
+interface FreeTicketType {
+  id?: string;
+  name: string;
+  description: string;
+  price: string;
+  capacity: string;
+}
 
-const headerVariants: Variants = {
-  hidden: { opacity: 0, y: -16 },
-  show: {
-    opacity: 1,
-    y: 0,
-    transition: {
-      type: 'spring',
-      damping: 28,
-      stiffness: 200,
-      delay: 0.05,
-    },
-  },
-};
+const VENUE_SECTIONS: Omit<SectionPrice, 'price'>[] = [
+  { sectionCode: 'CTR', sectionLabel: 'Central',   colorHex: '#4f98a3' },
+  { sectionCode: 'IZQ', sectionLabel: 'Izquierda', colorHex: '#7eb3bc' },
+  { sectionCode: 'DER', sectionLabel: 'Derecha',   colorHex: '#7eb3bc' },
+];
 
-const formVariants: Variants = {
-  hidden: {
-    opacity: 0,
-    y: 16,
-    scale: 0.98,
-  },
-  show: {
-    opacity: 1,
-    y: 0,
-    scale: 1,
-    transition: {
-      type: 'spring' as const,
-      damping: 28,
-      stiffness: 200,
-    },
-  },
-  exit: {
-    opacity: 0,
-    y: -12,
-    scale: 0.97,
-    transition: {
-      duration: 0.2,
-      ease: [0.4, 0, 1, 1],
-    },
-  },
+const DEFAULT_SECTION_PRICES: SectionPrice[] = VENUE_SECTIONS.map(s => ({
+  ...s,
+  price: '',
+}));
+
+const EMPTY_TICKET_TYPE: FreeTicketType = {
+  name: '',
+  description: '',
+  price: '',
+  capacity: '',
 };
 
 /* ─── Helpers ────────────────────────────────────────────── */
@@ -109,6 +91,43 @@ function fmtDate(iso: string) {
     hour: '2-digit', minute: '2-digit',
   });
 }
+
+// Convierte "2025-04-10T20:00:00.000Z" al formato requerido por datetime-local input
+function isoToLocalInput(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/* ─── Animation Variants ─────────────────────────────────── */
+const containerVariants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.07, delayChildren: 0.15 } },
+};
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 24 },
+  show: { opacity: 1, y: 0, transition: { type: 'spring', damping: 26, stiffness: 220 } },
+  exit: { opacity: 0, scale: 0.95, transition: { duration: 0.18, ease: [0.4, 0, 1, 1] } },
+};
+
+const headerVariants = {
+  hidden: { opacity: 0, y: -16 },
+  show: { opacity: 1, y: 0, transition: { type: 'spring', damping: 28, stiffness: 200, delay: 0.05 } },
+};
+
+const formVariants = {
+  hidden: { opacity: 0, y: 16, scale: 0.98 },
+  show: { opacity: 1, y: 0, scale: 1, transition: { type: 'spring', damping: 28, stiffness: 200 } },
+  exit: { opacity: 0, y: -12, scale: 0.97, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } },
+};
+
+const slideVariants = {
+  hidden: { opacity: 0, height: 0, overflow: 'hidden' },
+  show: { opacity: 1, height: 'auto', overflow: 'visible', transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] } },
+  exit: { opacity: 0, height: 0, overflow: 'hidden', transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } },
+};
 
 /* ─── Sub-components ─────────────────────────────────────── */
 function StatusBadge({ published }: { published: boolean }) {
@@ -162,12 +181,286 @@ function EmptyState({ onCreateClick }: { onCreateClick: () => void }) {
   );
 }
 
+/* ─── VenueMap (mini-preview) ────────────────────────────── */
+function VenueMap({ prices }: { prices: SectionPrice[] }) {
+  const priceOf = (code: string) => {
+    const sp = prices.find(p => p.sectionCode === code);
+    return sp?.price ? `$${Number(sp.price).toLocaleString('es-MX')}` : '—';
+  };
+
+  return (
+    <div className="venue-map">
+      <div className="vm-stage">ESCENARIO</div>
+      <div className="vm-sections">
+        <div className="vm-section vm-izq">
+          <span className="vm-sec-label">Izquierda</span>
+          <span className="vm-sec-price">{priceOf('IZQ')}</span>
+        </div>
+        <div className="vm-section vm-ctr">
+          <span className="vm-sec-label">Central</span>
+          <span className="vm-sec-price">{priceOf('CTR')}</span>
+        </div>
+        <div className="vm-section vm-der">
+          <span className="vm-sec-label">Derecha</span>
+          <span className="vm-sec-price">{priceOf('DER')}</span>
+        </div>
+      </div>
+      <div className="vm-audience">← Público →</div>
+    </div>
+  );
+}
+
+/* ─── Section Price Editor ───────────────────────────────── */
+function SectionPriceEditor({
+  prices,
+  onChange,
+}: {
+  prices: SectionPrice[];
+  onChange: (updated: SectionPrice[]) => void;
+}) {
+  function handlePriceChange(code: string, value: string) {
+    onChange(prices.map(p => p.sectionCode === code ? { ...p, price: value } : p));
+  }
+
+  return (
+    <div className="section-price-editor">
+      <p className="section-price-hint">
+        Define el precio de cada sección del Auditorio ESCOM. Los compradores verán estos precios al elegir su asiento en el mapa interactivo.
+      </p>
+      <VenueMap prices={prices} />
+      <div className="section-price-inputs">
+        {prices.map(sp => (
+          <div key={sp.sectionCode} className="section-price-row">
+            <div className="section-price-label">
+              <span className="section-dot" style={{ background: sp.colorHex }} />
+              <span>{sp.sectionLabel}</span>
+              <span className="section-code">({sp.sectionCode})</span>
+            </div>
+            <div className="section-price-input-wrap">
+              <span className="price-currency">MXN $</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                value={sp.price}
+                onChange={e => handlePriceChange(sp.sectionCode, e.target.value)}
+                className="price-input"
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Free Ticket Types Editor ───────────────────────────── */
+function FreeTicketTypesEditor({
+  types,
+  onChange,
+}: {
+  types: FreeTicketType[];
+  onChange: (updated: FreeTicketType[]) => void;
+}) {
+  function handleChange(index: number, field: keyof FreeTicketType, value: string) {
+    onChange(types.map((t, i) => i === index ? { ...t, [field]: value } : t));
+  }
+
+  function addType() {
+    onChange([...types, { ...EMPTY_TICKET_TYPE }]);
+  }
+
+  function removeType(index: number) {
+    onChange(types.filter((_, i) => i !== index));
+  }
+
+  return (
+    <div className="free-ticket-editor">
+      <p className="section-price-hint">
+        Define los tipos de boleto para tu evento. Puedes crear tantos como necesites (General, VIP, Estudiante, etc.).
+      </p>
+
+      <div className="ticket-types-list">
+        {types.map((tt, i) => (
+          <div key={tt.id ?? i} className="ticket-type-card">
+            <div className="ticket-type-header">
+              <span className="ticket-type-num">
+                Tipo #{i + 1}
+                {tt.id && <span className="ticket-type-existing"> · existente</span>}
+              </span>
+              {types.length > 1 && (
+                <button
+                  type="button"
+                  className="ticket-type-remove"
+                  onClick={() => removeType(i)}
+                  aria-label="Eliminar tipo"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <div className="form-row two-col">
+              <div className="field">
+                <label>Nombre</label>
+                <input
+                  type="text"
+                  placeholder="Ej. General, VIP, Estudiante…"
+                  value={tt.name}
+                  onChange={e => handleChange(i, 'name', e.target.value)}
+                  required
+                />
+              </div>
+              <div className="field">
+                <label>Precio (MXN)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={tt.price}
+                  onChange={e => handleChange(i, 'price', e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+            <div className="form-row two-col">
+              <div className="field">
+                <label>Descripción <span className="field-optional">(opcional)</span></label>
+                <input
+                  type="text"
+                  placeholder="Descripción breve del tipo de boleto"
+                  value={tt.description}
+                  onChange={e => handleChange(i, 'description', e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>Capacidad</label>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder="Ej. 100"
+                  value={tt.capacity}
+                  onChange={e => handleChange(i, 'capacity', e.target.value)}
+                  required
+                />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button type="button" className="btn btn-add-type" onClick={addType}>
+        + Agregar otro tipo de boleto
+      </button>
+    </div>
+  );
+}
+
+/* ─── Venue Mode Toggle ──────────────────────────────────── */
+function VenueModeToggle({
+  useMap,
+  onChange,
+  disabled,
+}: {
+  useMap: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="venue-mode-toggle">
+      <p className="venue-mode-title">
+        ¿Cómo se gestionan los boletos de este evento?
+        {disabled && (
+          <span className="venue-mode-locked" title="El modo no se puede cambiar si ya se han vendido boletos">
+            {' '}🔒 No editable con boletos vendidos
+          </span>
+        )}
+      </p>
+      <div className="venue-mode-options">
+        <button
+          type="button"
+          className={`venue-mode-option ${useMap ? 'active' : ''} ${disabled ? 'locked' : ''}`}
+          onClick={() => !disabled && onChange(true)}
+          disabled={disabled}
+        >
+          <span className="vmo-icon" aria-hidden="true">🗺️</span>
+          <div className="vmo-content">
+            <span className="vmo-label">Mapa del Auditorio ESCOM</span>
+            <span className="vmo-desc">Asientos numerados con precios por sección</span>
+          </div>
+          {useMap && <span className="vmo-check">✓</span>}
+        </button>
+        <button
+          type="button"
+          className={`venue-mode-option ${!useMap ? 'active' : ''} ${disabled ? 'locked' : ''}`}
+          onClick={() => !disabled && onChange(false)}
+          disabled={disabled}
+        >
+          <span className="vmo-icon" aria-hidden="true">🎟️</span>
+          <div className="vmo-content">
+            <span className="vmo-label">Tipos de boleto libres</span>
+            <span className="vmo-desc">General, VIP u otras categorías personalizadas</span>
+          </div>
+          {!useMap && <span className="vmo-check">✓</span>}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Helpers para cargar datos de un evento en el form ──── */
+function eventToFormFields(event: Event) {
+  return {
+    title: event.title,
+    description: event.description ?? '',
+    venueName: event.venueName,
+    venueCity: event.venueCity,
+    startsAt: isoToLocalInput(event.startsAt),
+    endsAt: isoToLocalInput(event.endsAt),
+    bannerUrl: event.bannerUrl ?? '',
+    category: (event.category ?? 'other') as Event['category'],
+  };
+}
+
+function eventToSectionPrices(event: Event): SectionPrice[] {
+  if (!event.eventSectionPrices || event.eventSectionPrices.length === 0) {
+    return DEFAULT_SECTION_PRICES;
+  }
+  return VENUE_SECTIONS.map(vs => {
+    const existing = event.eventSectionPrices!.find(
+      sp => sp.section.code === vs.sectionCode,
+    );
+    return {
+      ...vs,
+      price: existing ? existing.price.toString() : '',
+    };
+  });
+}
+
+function eventToFreeTicketTypes(event: Event): FreeTicketType[] {
+  if (!event.ticketTypes || event.ticketTypes.length === 0) {
+    return [{ ...EMPTY_TICKET_TYPE }];
+  }
+  return event.ticketTypes.map(tt => ({
+    id: tt.id,
+    name: tt.name,
+    description: tt.description ?? '',
+    price: tt.price.toString(),
+    capacity: tt.capacity.toString(),
+  }));
+}
+
 /* ─── Main Page ──────────────────────────────────────────── */
 export default function EventsPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
+
+  // ── Estado del formulario (crear o editar) ───────────────
+  const [formMode, setFormMode] = useState<'create' | 'edit' | null>(null);
+  const [editingEvent, setEditingEvent] = useState<Event | null>(null);
+
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -178,8 +471,13 @@ export default function EventsPage() {
     bannerUrl: '', category: 'other' as Event['category'],
   });
 
+  const [useVenueMap, setUseVenueMap] = useState(true);
+  const [sectionPrices, setSectionPrices] = useState<SectionPrice[]>(DEFAULT_SECTION_PRICES);
+  const [freeTicketTypes, setFreeTicketTypes] = useState<FreeTicketType[]>([{ ...EMPTY_TICKET_TYPE }]);
+
   const supabase = createClient();
   const isOrganizer = profile?.role === 'ORGANIZER';
+  const showForm = formMode !== null;
 
   async function loadData() {
     setLoading(true);
@@ -202,25 +500,160 @@ export default function EventsPage() {
 
   useEffect(() => { loadData(); }, []);
 
+  // ── Abrir formulario de creación ─────────────────────────
+  function openCreateForm() {
+    setEditingEvent(null);
+    setForm({ title: '', description: '', venueName: '', venueCity: '', startsAt: '', endsAt: '', bannerUrl: '', category: 'other' });
+    setSectionPrices(DEFAULT_SECTION_PRICES);
+    setFreeTicketTypes([{ ...EMPTY_TICKET_TYPE }]);
+    setUseVenueMap(true);
+    setError('');
+    setFormMode('create');
+  }
+
+  // ── Abrir formulario de edición ──────────────────────────
+  function openEditForm(event: Event) {
+    setEditingEvent(event);
+    setForm(eventToFormFields(event));
+    setUseVenueMap(event.useVenueMap ?? true);
+    setSectionPrices(eventToSectionPrices(event));
+    setFreeTicketTypes(eventToFreeTicketTypes(event));
+    setError('');
+    setFormMode('edit');
+    // Scroll suave al formulario
+    setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 50);
+  }
+
+  // ── Cerrar formulario ────────────────────────────────────
+  function closeForm() {
+    setFormMode(null);
+    setEditingEvent(null);
+    setError('');
+  }
+
+  // ── Validación compartida ────────────────────────────────
+  function validateForm(): string | null {
+    if (useVenueMap) {
+      const missingPrice = sectionPrices.some(sp => !sp.price || Number(sp.price) <= 0);
+      if (missingPrice) return 'Por favor define el precio para todas las secciones del auditorio.';
+    } else {
+      const invalidType = freeTicketTypes.some(
+        tt => !tt.name.trim() || !tt.price || Number(tt.price) <= 0 ||
+              !tt.capacity || Number(tt.capacity) < 1
+      );
+      if (invalidType) return 'Por favor completa nombre, precio y capacidad de todos los tipos de boleto.';
+    }
+    return null;
+  }
+
+  // ── Crear evento ─────────────────────────────────────────
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+
+    const validationError = validateForm();
+    if (validationError) { setError(validationError); return; }
+
     setActionLoading('create');
     try {
       const { data: { session } } = await supabase.auth.getSession();
+
+      const body: Record<string, unknown> = {
+        ...form,
+        startsAt: new Date(form.startsAt).toISOString(),
+        endsAt: new Date(form.endsAt).toISOString(),
+        useVenueMap,
+      };
+
+      if (useVenueMap) {
+        body.sectionPrices = sectionPrices.map(sp => ({
+          sectionCode: sp.sectionCode,
+          price: parseFloat(sp.price),
+          currency: 'MXN',
+        }));
+      } else {
+        body.ticketTypes = freeTicketTypes.map(tt => ({
+          name: tt.name.trim(),
+          description: tt.description.trim() || undefined,
+          price: tt.price,
+          currency: 'MXN',
+          capacity: parseInt(tt.capacity, 10),
+        }));
+      }
+
       const res = await fetch(`${API_BASE_URL}/events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({
-          ...form,
-          startsAt: new Date(form.startsAt).toISOString(),
-          endsAt: new Date(form.endsAt).toISOString(),
-        }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.message || 'Error al crear evento'); }
-      setForm({ title: '', description: '', venueName: '', venueCity: '', startsAt: '', endsAt: '', bannerUrl: '', category: 'other' });
-      setShowForm(false);
+
+      closeForm();
       setSuccessMsg('Evento creado correctamente.');
+      await loadData();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setActionLoading(null);
+      setTimeout(() => setSuccessMsg(''), 3000);
+    }
+  }
+
+  // ── Actualizar evento ────────────────────────────────────
+  async function handleUpdate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingEvent) return;
+    setError('');
+
+    const validationError = validateForm();
+    if (validationError) { setError(validationError); return; }
+
+    setActionLoading('update');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      // Solo mandamos los campos que cambiaron en base del evento
+      const body: Record<string, unknown> = {
+        ...form,
+        startsAt: new Date(form.startsAt).toISOString(),
+        endsAt: new Date(form.endsAt).toISOString(),
+        // No enviamos useVenueMap en el update — el backend no debe cambiar el modo
+        // si ya existen boletos vendidos. La lógica de protección está en el backend.
+      };
+
+      if (editingEvent.useVenueMap) {
+        // Modo mapa: actualizar precios de sección
+        body.sectionPrices = sectionPrices.map(sp => ({
+          sectionCode: sp.sectionCode,
+          price: parseFloat(sp.price),
+          currency: 'MXN',
+        }));
+      } else {
+        // Modo clásico: actualizar ticket types
+        // Incluimos el id cuando existe (actualizar) y lo omitimos cuando no (crear nuevo)
+        body.ticketTypes = freeTicketTypes.map(tt => ({
+          ...(tt.id ? { id: tt.id } : {}),
+          name: tt.name.trim(),
+          description: tt.description.trim() || undefined,
+          price: tt.price,
+          currency: 'MXN',
+          capacity: parseInt(tt.capacity, 10),
+        }));
+      }
+
+      const res = await fetch(`${API_BASE_URL}/events/${editingEvent.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(Array.isArray(d.message) ? d.message.join('. ') : (d.message || 'Error al actualizar evento'));
+      }
+
+      closeForm();
+      setSuccessMsg('Evento actualizado correctamente.');
       await loadData();
     } catch (err: any) {
       setError(err.message);
@@ -255,6 +688,15 @@ export default function EventsPage() {
   const publishedCount = events.filter(e => e.isPublished).length;
   const draftCount = events.filter(e => !e.isPublished).length;
 
+  const formTitle = formMode === 'edit'
+    ? `Editar: ${editingEvent?.title ?? ''}`
+    : 'Nuevo evento';
+
+  const isFormLoading = actionLoading === 'create' || actionLoading === 'update';
+  const submitLabel = formMode === 'edit'
+    ? (isFormLoading ? 'Guardando…' : 'Guardar cambios')
+    : (isFormLoading ? 'Creando…' : 'Crear evento');
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
@@ -279,7 +721,7 @@ export default function EventsPage() {
             {isOrganizer && (
               <motion.button
                 className="btn btn-primary"
-                onClick={() => setShowForm(v => !v)}
+                onClick={showForm ? closeForm : openCreateForm}
                 whileHover={{ y: -1 }} whileTap={{ y: 0, scale: 0.97 }}
                 transition={{ type: 'spring', damping: 20, stiffness: 400 }}
               >
@@ -328,8 +770,15 @@ export default function EventsPage() {
           <AnimatePresence>
             {showForm && (
               <motion.section className="form-panel" variants={formVariants} initial="hidden" animate="show" exit="exit">
-                <h2 className="form-title">Nuevo evento</h2>
-                <form className="create-form" onSubmit={handleCreate}>
+                <h2 className="form-title">{formTitle}</h2>
+                <form
+                  className="create-form"
+                  onSubmit={formMode === 'edit' ? handleUpdate : handleCreate}
+                >
+
+                  {/* ── Información general ── */}
+                  <div className="form-section-title">Información general</div>
+
                   <div className="form-row">
                     <div className="field full">
                       <label htmlFor="title">Título</label>
@@ -345,7 +794,7 @@ export default function EventsPage() {
                   <div className="form-row two-col">
                     <div className="field">
                       <label htmlFor="venueName">Recinto</label>
-                      <input id="venueName" type="text" value={form.venueName} onChange={e => setForm({ ...form, venueName: e.target.value })} required placeholder="Auditorio Nacional" />
+                      <input id="venueName" type="text" value={form.venueName} onChange={e => setForm({ ...form, venueName: e.target.value })} required placeholder="Auditorio ESCOM" />
                     </div>
                     <div className="field">
                       <label htmlFor="venueCity">Ciudad</label>
@@ -397,10 +846,56 @@ export default function EventsPage() {
                       />
                     </div>
                   )}
+
+                  {/* ── Modo de boletos ── */}
+                  <div className="form-divider" />
+                  <div className="form-section-title">
+                    Tipo de boletos
+                    <span className="form-section-required">Requerido</span>
+                  </div>
+
+                  {/*
+                    En modo edición, el toggle está deshabilitado para prevenir que el
+                    organizador cambie de "mapa" a "libre" o viceversa, ya que eso
+                    implicaría eliminar asientos/tipos de boleto con potencial de romper
+                    reservas existentes. El backend no lo permite tampoco.
+                  */}
+                  <VenueModeToggle
+                    useMap={useVenueMap}
+                    onChange={setUseVenueMap}
+                    disabled={formMode === 'edit'}
+                  />
+
+                  {/* ── Editor condicional ── */}
+                  <AnimatePresence mode="wait">
+                    {useVenueMap ? (
+                      <motion.div
+                        key="map-editor"
+                        variants={slideVariants}
+                        initial="hidden"
+                        animate="show"
+                        exit="exit"
+                      >
+                        <SectionPriceEditor prices={sectionPrices} onChange={setSectionPrices} />
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        key="free-editor"
+                        variants={slideVariants}
+                        initial="hidden"
+                        animate="show"
+                        exit="exit"
+                      >
+                        <FreeTicketTypesEditor types={freeTicketTypes} onChange={setFreeTicketTypes} />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  {/* ── Acciones ── */}
                   <div className="form-actions">
-                    <button type="button" className="btn btn-ghost" onClick={() => setShowForm(false)}>Cancelar</button>
-                    <button type="submit" className="btn btn-primary" disabled={actionLoading === 'create'}>
-                      {actionLoading === 'create' ? 'Creando…' : 'Crear evento'}
+                    <button type="button" className="btn btn-ghost" onClick={closeForm}>Cancelar</button>
+                    <button type="submit" className="btn btn-primary" disabled={isFormLoading}>
+                      {submitLabel}
                     </button>
                   </div>
                 </form>
@@ -408,7 +903,7 @@ export default function EventsPage() {
             )}
           </AnimatePresence>
 
-          {/* Lista */}
+          {/* Lista de eventos */}
           {loading ? (
             <div className="events-grid">
               {[1, 2, 3].map(i => <SkeletonCard key={i} />)}
@@ -418,31 +913,33 @@ export default function EventsPage() {
               <p>Tu cuenta tiene el rol <strong>{profile?.role ?? 'desconocido'}</strong> y no puede gestionar eventos.</p>
             </motion.div>
           ) : events.length === 0 ? (
-            <EmptyState onCreateClick={() => setShowForm(true)} />
+            <EmptyState onCreateClick={openCreateForm} />
           ) : (
             <motion.div className="events-grid" variants={containerVariants} initial="hidden" animate="show">
               <AnimatePresence>
                 {events.map(event => (
                   <motion.article
                     key={event.id}
-                    className={`event-card ${event.isPublished ? 'is-published' : 'is-draft'}`}
+                    className={`event-card ${event.isPublished ? 'is-published' : 'is-draft'} ${editingEvent?.id === event.id ? 'is-editing' : ''}`}
                     variants={cardVariants}
                     layout
                     whileHover={{ y: -3, boxShadow: '0 8px 32px oklch(0 0 0 / 0.22)', transition: { duration: 0.18 } }}
                   >
-                    {/* Cabecera de la card */}
                     <div className="card-head">
                       <div className="card-head-top">
                         <StatusBadge published={event.isPublished} />
-                        <span className="card-id">#{event.id.slice(0, 6).toUpperCase()}</span>
+                        <div className="card-head-right">
+                          {event.useVenueMap && (
+                            <span className="map-badge" title="Usa el mapa del auditorio">🗺️ Mapa</span>
+                          )}
+                          <span className="card-id">#{event.id.slice(0, 6).toUpperCase()}</span>
+                        </div>
                       </div>
                       <h2 className="card-title">{event.title}</h2>
                       {event.description && (
                         <p className="card-description">{event.description}</p>
                       )}
                     </div>
-
-                    {/* Meta del evento */}
                     <div className="card-meta">
                       <div className="meta-item">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -463,9 +960,20 @@ export default function EventsPage() {
                         <span>Fin: {fmtDate(event.endsAt)}</span>
                       </div>
                     </div>
-
-                    {/* Acciones */}
                     <div className="card-footer">
+                      {/* ── Editar (siempre disponible, publicado o no) ── */}
+                      <motion.button
+                        className={`btn btn-secondary ${editingEvent?.id === event.id ? 'btn-editing' : ''}`}
+                        onClick={() => editingEvent?.id === event.id ? closeForm() : openEditForm(event)}
+                        disabled={!!actionLoading}
+                        whileTap={{ scale: 0.96 }}
+                        transition={{ type: 'spring', damping: 20, stiffness: 400 }}
+                        title="Editar información del evento"
+                      >
+                        {editingEvent?.id === event.id ? '✕ Cerrar editor' : '✏️ Editar'}
+                      </motion.button>
+
+                      {/* ── Publicar / Despublicar ── */}
                       <motion.button
                         className={`btn ${event.isPublished ? 'btn-outline-danger' : 'btn-publish'}`}
                         onClick={() => togglePublish(event)}
@@ -475,14 +983,18 @@ export default function EventsPage() {
                       >
                         {actionLoading === event.id ? 'Procesando…' : event.isPublished ? 'Despublicar' : 'Publicar'}
                       </motion.button>
-                      <motion.button
-                        className="btn btn-secondary"
-                        onClick={() => router.push(`/events/${event.id}/ticket-types`)}
-                        whileTap={{ scale: 0.96 }}
-                        transition={{ type: 'spring', damping: 20, stiffness: 400 }}
-                      >
-                        Gestionar boletos
-                      </motion.button>
+
+                      {/* ── Gestionar boletos (modo clásico) ── */}
+                      {!event.useVenueMap && (
+                        <motion.button
+                          className="btn btn-ghost"
+                          onClick={() => router.push(`/events/${event.id}/ticket-types`)}
+                          whileTap={{ scale: 0.96 }}
+                          transition={{ type: 'spring', damping: 20, stiffness: 400 }}
+                        >
+                          Gestionar boletos
+                        </motion.button>
+                      )}
                     </div>
                   </motion.article>
                 ))}
@@ -638,6 +1150,33 @@ const CSS = `
     margin-bottom: 1.25rem;
     color: var(--text);
   }
+  .form-section-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+  .form-section-required {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: rgba(99,102,241,0.15);
+    color: #818cf8;
+    border: 1px solid rgba(99,102,241,0.25);
+    border-radius: 9999px;
+    padding: 1px 7px;
+  }
+  .form-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 0.25rem 0;
+  }
   .create-form { display: flex; flex-direction: column; gap: 1rem; }
   .form-row { display: flex; gap: 1rem; }
   .form-row.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
@@ -710,6 +1249,322 @@ const CSS = `
     padding-top: 0.25rem;
   }
 
+  /* ── Venue Mode Toggle ── */
+  .venue-mode-toggle {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .venue-mode-title {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+  }
+  .venue-mode-locked {
+    font-size: 0.75rem;
+    color: var(--amber);
+  }
+  .venue-mode-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+  .venue-mode-option {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.9rem 1rem;
+    background: var(--surface-2);
+    border: 2px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: border-color var(--tr), background var(--tr), box-shadow var(--tr);
+    text-align: left;
+    width: 100%;
+  }
+  .venue-mode-option:hover:not(.locked) {
+    border-color: rgba(99,102,241,0.3);
+    background: var(--surface-3);
+  }
+  .venue-mode-option.active {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+    box-shadow: 0 0 0 1px rgba(99,102,241,0.15) inset;
+  }
+  .venue-mode-option.locked {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .vmo-icon {
+    font-size: 1.4rem;
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .vmo-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    flex: 1;
+    min-width: 0;
+  }
+  .vmo-label {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.2;
+  }
+  .vmo-desc {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.3;
+  }
+  .vmo-check {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--accent);
+    flex-shrink: 0;
+    background: rgba(99,102,241,0.15);
+    border-radius: 9999px;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* ── Section Price Editor ── */
+  .section-price-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding-top: 0.5rem;
+  }
+  .section-price-hint {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  /* Mini-mapa del auditorio */
+  .venue-map {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .vm-stage {
+    background: rgba(99,102,241,0.12);
+    border: 1px solid rgba(99,102,241,0.25);
+    border-radius: 8px;
+    color: #818cf8;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-align: center;
+    padding: 0.3rem 2rem;
+    width: 55%;
+  }
+  .vm-sections {
+    display: flex;
+    gap: 0.4rem;
+    width: 100%;
+  }
+  .vm-section {
+    flex: 1;
+    border-radius: 8px;
+    padding: 0.5rem 0.4rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.2rem;
+    border: 1px solid transparent;
+  }
+  .vm-ctr {
+    background: rgba(79,152,163,0.12);
+    border-color: rgba(79,152,163,0.25);
+    flex: 1.8;
+  }
+  .vm-izq, .vm-der {
+    background: rgba(126,179,188,0.08);
+    border-color: rgba(126,179,188,0.18);
+  }
+  .vm-sec-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.03em;
+  }
+  .vm-sec-price {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .vm-audience {
+    font-size: 0.65rem;
+    color: var(--text-faint);
+    letter-spacing: 0.05em;
+  }
+
+  /* Inputs de precio */
+  .section-price-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+  .section-price-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.65rem 0.85rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    transition: border-color var(--tr);
+  }
+  .section-price-row:focus-within {
+    border-color: rgba(99,102,241,0.35);
+  }
+  .section-price-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+    flex-shrink: 0;
+  }
+  .section-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 9999px;
+    flex-shrink: 0;
+  }
+  .section-code {
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+  }
+  .section-price-input-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .price-currency {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+  .price-input {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 0.95rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    padding: 0.2rem 0.3rem;
+    width: 110px;
+    text-align: right;
+    transition: border-color var(--tr);
+  }
+  .price-input:focus {
+    outline: none;
+    border-bottom-color: var(--accent);
+  }
+  .price-input::placeholder { color: var(--text-faint); font-weight: 400; }
+  .price-input::-webkit-outer-spin-button,
+  .price-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .price-input[type=number] { -moz-appearance: textfield; }
+
+  /* ── Free Ticket Types Editor ── */
+  .free-ticket-editor {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding-top: 0.5rem;
+  }
+  .ticket-types-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .ticket-type-card {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    transition: border-color var(--tr);
+  }
+  .ticket-type-card:focus-within {
+    border-color: rgba(99,102,241,0.3);
+  }
+  .ticket-type-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .ticket-type-num {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-faint);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .ticket-type-existing {
+    color: #4f98a3;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+  .ticket-type-remove {
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-faint);
+    font-size: 0.85rem;
+    padding: 2px 6px;
+    border-radius: 6px;
+    transition: background var(--tr), color var(--tr);
+  }
+  .ticket-type-remove:hover {
+    background: var(--red-dim);
+    color: var(--red);
+  }
+  .btn-add-type {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius);
+    font-family: var(--font);
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    background: transparent;
+    border: 1px dashed rgba(99,102,241,0.35);
+    color: #818cf8;
+    transition: background var(--tr), border-color var(--tr), color var(--tr);
+    width: 100%;
+    justify-content: center;
+  }
+  .btn-add-type:hover {
+    background: var(--accent-dim);
+    border-color: rgba(99,102,241,0.55);
+    color: var(--accent);
+  }
+
   /* ── Grid de eventos ── */
   .events-grid {
     display: grid;
@@ -731,6 +1586,7 @@ const CSS = `
   }
   .event-card.is-published { border-color: rgba(99,102,241,0.2); }
   .event-card.is-draft { border-color: var(--border); }
+  .event-card.is-editing { border-color: rgba(99,102,241,0.5); box-shadow: 0 0 0 2px rgba(99,102,241,0.12); }
   .event-card:hover { border-color: var(--border-hover); }
 
   .card-head {
@@ -745,6 +1601,21 @@ const CSS = `
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
+  }
+  .card-head-right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .map-badge {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #4f98a3;
+    background: rgba(79,152,163,0.1);
+    border: 1px solid rgba(79,152,163,0.22);
+    border-radius: 9999px;
+    padding: 1px 7px;
+    white-space: nowrap;
   }
   .card-id {
     font-size: 0.7rem;
@@ -831,6 +1702,7 @@ const CSS = `
   .btn-primary:hover:not(:disabled) { opacity: 0.88; }
   .btn-secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
   .btn-secondary:hover:not(:disabled) { background: var(--surface-3); }
+  .btn-editing { background: var(--accent-dim); color: #818cf8; border-color: rgba(99,102,241,0.3); }
   .btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
   .btn-ghost:hover:not(:disabled) { background: var(--surface-2); color: var(--text); }
   .btn-publish { background: var(--green-dim); color: var(--green); border: 1px solid var(--green-border); }
@@ -881,8 +1753,11 @@ const CSS = `
 
   @media (max-width: 640px) {
     .form-row.two-col { grid-template-columns: 1fr; }
+    .venue-mode-options { grid-template-columns: 1fr; }
     .events-grid { grid-template-columns: 1fr; }
     .card-footer { flex-direction: column; }
     .card-footer .btn { width: 100%; }
+    .section-price-row { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+    .price-input { width: 100%; }
   }
 `;
