@@ -21,7 +21,7 @@ interface SectionPrice {
   currency: string;
 }
 
-interface Event {
+interface EventDetail {
   id: string;
   title: string;
   description: string;
@@ -245,37 +245,38 @@ function redrawAll() {
 
   // Attach SVG events
   useEffect(() => {
-    const g = svgRef.current?.getElementById('seatsG');
+    const g = svgRef.current?.getElementById('seatsG') as SVGGElement | null;
     if (!g) return;
 
-    const onClick = (e: Event) => {
-      const id = (e.target as SVGElement).dataset.id;
-      if (id) handleSeatClick(id);
-    };
-    const onOver = (e: Event) => {
-      const target = e.target as SVGElement;
-      const id = target.dataset.id;
-      if (!id) return;
-      const s = seatsRef.current.find((x) => x.id === id);
-      if (!s) return;
-      const me = e as MouseEvent;
-      const STATUS_TXT: Record<SeatStatus, string> = {
-        available: 'Disponible', selected: 'Seleccionado',
-        held: 'En proceso de compra', sold: 'Vendido',
-      };
-      setTooltip({
-        visible: true,
-        label: `${s.sectionLabel} · Fila ${s.row} · Asiento ${s.number}`,
-        sub: STATUS_TXT[s.renderStatus],
-        price: s.price !== null && s.renderStatus !== 'sold'
-          ? `$${s.price.toLocaleString('es-MX')} MXN` : '',
-        x: me.clientX, y: me.clientY,
-      });
-    };
-    const onMove = (e: Event) => {
-      const me = e as MouseEvent;
-      setTooltip((t) => t.visible ? { ...t, x: me.clientX, y: me.clientY } : t);
-    };
+const onClick = (e: globalThis.Event) => {
+  const id = ((e as unknown as MouseEvent).target as SVGElement).dataset.id;
+  if (id) handleSeatClick(id);
+};
+const onOver = (e: globalThis.Event) => {
+  const me = e as unknown as MouseEvent;
+  const target = me.target as SVGElement;
+  const id = target.dataset.id;
+  if (!id) return;
+  const s = seatsRef.current.find((x) => x.id === id);
+  if (!s) return;
+  const STATUS_TXT: Record<SeatStatus, string> = {
+    available: 'Disponible', selected: 'Seleccionado',
+    held: 'En proceso de compra', sold: 'Vendido',
+  };
+  setTooltip({
+    visible: true,
+    label: `${s.sectionLabel} · Fila ${s.row} · Asiento ${s.number}`,
+    sub: STATUS_TXT[s.renderStatus],
+    price: s.price !== null && s.renderStatus !== 'sold'
+      ? `$${s.price.toLocaleString('es-MX')} MXN` : '',
+    x: me.clientX, y: me.clientY,
+  });
+};
+
+const onMove = (e: globalThis.Event) => {
+  const me = e as unknown as MouseEvent;
+  setTooltip((t) => t.visible ? { ...t, x: me.clientX, y: me.clientY } : t);
+};
     const onOut  = () => setTooltip((t) => ({ ...t, visible: false }));
 
     g.addEventListener('click',     onClick);
@@ -526,7 +527,7 @@ export default function CheckoutPage() {
   const router = useRouter();
   const id = params?.id;
 
-  const [event, setEvent]             = useState<Event | null>(null);
+  const [event, setEvent]             = useState<EventDetail | null>(null);
   const [seats, setSeats]             = useState<SeatData[]>([]);
   const [selectedSeats, setSelectedSeats] = useState<RenderSeat[]>([]);
   const [loading, setLoading]         = useState(true);

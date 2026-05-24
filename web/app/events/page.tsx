@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { API_BASE_URL } from '@/lib/supabase/api';
 
@@ -108,25 +108,41 @@ const containerVariants = {
 
 const cardVariants = {
   hidden: { opacity: 0, y: 24 },
-  show: { opacity: 1, y: 0, transition: { type: 'spring', damping: 26, stiffness: 220 } },
-  exit: { opacity: 0, scale: 0.95, transition: { duration: 0.18, ease: [0.4, 0, 1, 1] } },
+  show: { opacity: 1, y: 0, transition: { type: 'spring' as const, damping: 26, stiffness: 220 } },
+  exit: { opacity: 0, scale: 0.95, transition: { duration: 0.18, ease: [0.4, 0, 1, 1] as [number, number, number, number] } },
 };
 
 const headerVariants = {
-  hidden: { opacity: 0, y: -16 },
-  show: { opacity: 1, y: 0, transition: { type: 'spring', damping: 28, stiffness: 200, delay: 0.05 } },
+  hidden: { opacity: 0, y: -20 },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: { type: 'spring' as const, damping: 20, stiffness: 300, delay: 0.1 },
+  },
 };
 
 const formVariants = {
-  hidden: { opacity: 0, y: 16, scale: 0.98 },
-  show: { opacity: 1, y: 0, scale: 1, transition: { type: 'spring', damping: 28, stiffness: 200 } },
-  exit: { opacity: 0, y: -12, scale: 0.97, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } },
+  hidden: { opacity: 0, y: 20, scale: 0.98 },
+  show: {
+    opacity: 1, y: 0, scale: 1,
+    transition: { type: 'spring' as const, damping: 20, stiffness: 300 },
+  },
+  exit: {
+    opacity: 0, y: 20, scale: 0.98,
+    transition: { type: 'spring' as const, damping: 20, stiffness: 300 },
+  },
 };
 
-const slideVariants = {
+const slideVariants: Variants = {
   hidden: { opacity: 0, height: 0, overflow: 'hidden' },
-  show: { opacity: 1, height: 'auto', overflow: 'visible', transition: { duration: 0.28, ease: [0.16, 1, 0.3, 1] } },
-  exit: { opacity: 0, height: 0, overflow: 'hidden', transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } },
+  show: {
+    opacity: 1, height: 'auto', overflow: 'hidden',
+    transition: { duration: 0.35, ease: 'easeOut' as const },
+  },
+  exit: {
+    opacity: 0, height: 0, overflow: 'hidden',
+    transition: { duration: 0.25, ease: 'easeIn' as const },
+  },
 };
 
 /* ─── Sub-components ─────────────────────────────────────── */

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
-export default function AcceptInvitePage() {
+export default function AcceptInviteClient() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const supabase     = createClient();
@@ -71,7 +71,6 @@ export default function AcceptInvitePage() {
     router.replace('/discover');
   }
 
-  // ── Pantalla 1: pedir email ──────────────────────────────────────────────
   if (needsEmail && !ready) {
     return (
       <div style={{
@@ -122,7 +121,6 @@ export default function AcceptInvitePage() {
     );
   }
 
-  // ── Pantalla 2: establecer contraseña ────────────────────────────────────
   if (ready) {
     return (
       <div style={{
@@ -195,7 +193,6 @@ export default function AcceptInvitePage() {
     );
   }
 
-  // ── Estado inicial (sin token en URL) ────────────────────────────────────
   return (
     <div style={{
       minHeight: '100vh', display: 'flex', alignItems: 'center',
