@@ -239,202 +239,360 @@ useEffect(() => {
   }, [isNew, loading, ticket]);
 
 
-  return (
-    <>
-      <style>{CSS}</style>
-      <ConfettiCanvas active={confetti} />
-      <div className="page-root">
-        <nav className="top-nav">
-          <div className="nav-inner">
-            <Link href="/tickets/me" className="back-btn">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"/></svg>
-              Mis boletos
+return (
+  <>
+    <style>{CSS}</style>
+    <ConfettiCanvas active={confetti} />
+
+    <div className="page-root">
+      <nav className="top-nav">
+        <div className="nav-inner">
+          <Link href="/tickets/me" className="back-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+            Mis boletos
+          </Link>
+        </div>
+      </nav>
+
+      <main className="ticket-layout">
+        {loading ? (
+          <div className="loading-state">
+            <div className="spinner" />
+          </div>
+        ) : notFound || !ticket ? (
+          <div className="error-state">
+            <p>No se encontró el boleto.</p>
+            <Link href="/tickets/me" className="back-link">
+              ← Ver mis boletos
             </Link>
           </div>
-        </nav>
-
-        <main className="ticket-layout">
-          {loading ? (
-            <div className="loading-state"><div className="spinner" /></div>
-          ) : notFound || !ticket ? (
-            <div className="error-state">
-              <p>No se encontró el boleto.</p>
-              <Link href="/tickets/me" className="back-link">← Ver mis boletos</Link>
-            </div>
-          ) : (
-            <>
-              {isNew && (
-                <div className="success-banner" role="status">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                  ¡Compra exitosa! Tu boleto está listo.
-                </div>
-              )}
-
-              {/* ── Boleto visual ── */}
-              <div className="ticket-card" style={{ '--accent-color': color } as React.CSSProperties}>
-                {/* Header del boleto */}
-                <div className="ticket-header" style={{ background: `linear-gradient(135deg, ${color}28 0%, #1a1a1c 100%)` }}>
-                  <div className="ticket-avatar" style={{ background: color }}>{abbr}</div>
-                  <div className="ticket-event-info">
-                    <h1 className="ticket-event-title">{ticket.event?.title ?? '—'}</h1>
-                    {ticket.event && (
-                      <p className="ticket-event-meta">
-                        {fmtDate(ticket.event.startsAt)}, {fmtTime(ticket.event.startsAt)}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Perforación */}
-                <div className="ticket-perforation" aria-hidden="true">
-                  <div className="notch left" />
-                  <div className="dashed-line" />
-                  <div className="notch right" />
-                </div>
-                
-                {/* Asiento — solo aparece en modo mapa */}
-                {ticket.seat && (
-                  <div className="ticket-field">
-                    <span className="field-label">Asiento</span>
-                    <span className="field-value">
-                      {ticket.seat.seatLabel ?? ticket.seat.id}
-                      {ticket.seat.section && ` — ${ticket.seat.section.label}`}
-                    </span>
-                  </div>
-                )}
-                <div className="ticket-field">
-  <span className="field-label">Recinto</span>
-  <span className="field-value">{ticket.event?.venueName ?? '—'}</span>
-</div>
-
-<div className="ticket-field">
-  <span className="field-label">Ciudad</span>
-  <span className="field-value">{ticket.event?.venueCity ?? '—'}</span>
-</div>
-                {/* Detalles del boleto */}
-                <div className="ticket-body">
-                  <div className="ticket-fields">
-                    <div className="ticket-field">
-                      <span className="field-label">Titular</span>
-                      <span className="field-value">{ticket.buyer?.fullName ?? '—'}</span>
-                    </div>
-                    <div className="ticket-field">
-                      <span className="field-label">Recinto</span>
-                      <span className="field-value">{ticket.event?.venueName ?? '—'}</span>
-                    </div>
-                    <div className="ticket-field">
-                      <span className="field-label">Ciudad</span>
-                      <span className="field-value">{ticket.event?.venueCity ?? '—'}</span>
-                    </div>
-                    <div className="ticket-field">
-                      <span className="field-label">Cantidad</span>
-                      <span className="field-value">{ticket.quantity} boleto{ticket.quantity !== 1 ? 's' : ''}</span>
-                    </div>
-                    <div className="ticket-field">
-                      <span className="field-label">Total pagado</span>
-                      <span className="field-value accent">${total.toLocaleString('es-MX')} MXN</span>
-                    </div>
-                    <div className="ticket-field">
-                      <span className="field-label">Estado</span>
-                      <span className={`status-badge status-${(ticket.status ?? 'pending').toLowerCase()}`}>
-                        {ticket.status ?? 'PENDING'}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* QR placeholder / código */}
-<div className="ticket-qr-section">
-  {isBlocked ? (
-    <div className={`qr-blocked qr-${normalizedStatus.toLowerCase()}`}>
-      <div className="qr-blocked-icon">
-        {isUsed ? (
-          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-            <path d="M9 12l2 2 4-4" />
-            <circle cx="12" cy="12" r="9" />
-          </svg>
         ) : (
-          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M8.5 8.5l7 7" />
-            <path d="M15.5 8.5l-7 7" />
-          </svg>
-        )}
-      </div>
+          <>
+            {isNew && (
+              <div className="success-banner" role="status">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+                Compra exitosa. Tu boleto está listo.
+              </div>
+            )}
 
-      <p className="ticket-code">#{shortId}</p>
-      <p className="qr-blocked-title">
-        {normalizedStatus === 'USED'
-          ? 'Este boleto ya fue utilizado'
-          : normalizedStatus === 'REVOKED'
-          ? 'Este boleto fue revocado'
-          : 'Este boleto expiró'}
-      </p>
-      <p className="ticket-code-note">
-        {normalizedStatus === 'USED'
-          ? 'El código QR dejó de mostrarse porque ya no puede volver a usarse.'
-          : 'Este boleto ya no es válido para ingreso.'}
-      </p>
-    </div>
-  ) : qrLoading && !qrToken ? (
-    <div className="qr-loading">
-      <div className="spinner small" />
-      <p className="ticket-code-note">Generando código seguro...</p>
-    </div>
-  ) : qrError ? (
-    <div className="qr-blocked qr-expired">
-      <div className="qr-blocked-icon">
-        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M8.5 8.5l7 7" />
-          <path d="M15.5 8.5l-7 7" />
-        </svg>
-      </div>
-      <p className="qr-blocked-title">No se pudo generar el QR</p>
-      <p className="ticket-code-note">{qrError}</p>
-    </div>
-  ) : (
-    <>
-      <div className="qr-real">
-        <QRCode
-          value={qrToken}
-          size={140}
-          bgColor="transparent"
-          fgColor={color}
-        />
-      </div>
-      <p className="ticket-code">#{shortId}</p>
-      <p className="ticket-code-note">Este código se actualiza automáticamente.</p>
-      {qrExpiresAt ? (
-        <p className="ticket-code-note subtle">
-          Válido hasta: {new Date(qrExpiresAt).toLocaleTimeString('es-MX')}
-        </p>
-      ) : null}
-    </>
-  )}
-</div>
+            <div
+              className="ticket-card"
+              style={{ '--accent-color': color } as React.CSSProperties}
+            >
+              <div
+                className="ticket-header"
+                style={{ background: `linear-gradient(135deg, ${color}28 0%, #1a1a1c 100%)` }}
+              >
+                <div className="ticket-avatar" style={{ background: color }}>
+                  {abbr}
+                </div>
+
+                <div className="ticket-event-info">
+                  <h1 className="ticket-event-title">{ticket.event?.title ?? '—'}</h1>
+                  {ticket.event && (
+                    <p className="ticket-event-meta">
+                      {fmtDate(ticket.event.startsAt)}, {fmtTime(ticket.event.startsAt)}
+                    </p>
+                  )}
                 </div>
               </div>
 
-              {/* ── Acciones ── */}
-              <div className="ticket-actions">
-                <Link href="/discover" className="action-btn secondary">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                  Descubrir más eventos
-                </Link>
-                <Link href="/tickets/me" className="action-btn primary" style={{ background: color }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6"/><polyline points="14,2 20,2 20,8"/><line x1="10" y1="14" x2="20" y2="4"/></svg>
-                  Ver todos mis boletos
-                </Link>
+              <div className="ticket-perforation" aria-hidden="true">
+                <div className="notch left" />
+                <div className="dashed-line" />
+                <div className="notch right" />
               </div>
-            </>
-          )}
-        </main>
-      </div>
-    </>
-  );
+
+              <div className="ticket-body">
+                <div className="ticket-sections">
+                  <section className="ticket-section">
+                    <h2 className="ticket-section-title">Evento</h2>
+
+                    <div className="ticket-fields">
+                      <div className="ticket-field">
+                        <span className="field-label">Fecha</span>
+                        <span className="field-value">
+                          {ticket.event ? fmtDate(ticket.event.startsAt) : '—'}
+                        </span>
+                      </div>
+
+                      <div className="ticket-field">
+                        <span className="field-label">Hora</span>
+                        <span className="field-value">
+                          {ticket.event ? fmtTime(ticket.event.startsAt) : '—'}
+                        </span>
+                      </div>
+
+                      <div className="ticket-field">
+                        <span className="field-label">Recinto</span>
+                        <span className="field-value">{ticket.event?.venueName ?? '—'}</span>
+                      </div>
+
+                      <div className="ticket-field">
+                        <span className="field-label">Ciudad</span>
+                        <span className="field-value">{ticket.event?.venueCity ?? '—'}</span>
+                      </div>
+
+                      {ticket.seat && (
+                        <div className="ticket-field">
+                          <span className="field-label">Asiento</span>
+                          <span className="field-value">
+                            {ticket.seat.seatLabel ?? ticket.seat.id}
+                            {ticket.seat.section ? ` · ${ticket.seat.section.label}` : ''}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="ticket-section">
+                    <h2 className="ticket-section-title">Boleto</h2>
+
+                    <div className="ticket-fields">
+                      <div className="ticket-field">
+                        <span className="field-label">Folio</span>
+                        <span className="field-value">#{shortId}</span>
+                      </div>
+
+                      <div className="ticket-field">
+                        <span className="field-label">Cantidad</span>
+                        <span className="field-value">
+                          {ticket.quantity} boleto{ticket.quantity !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+
+                      <div className="ticket-field">
+                        <span className="field-label">Estado</span>
+                        <span className={`status-badge status-${(ticket.status ?? 'pending').toLowerCase()}`}>
+                          {ticket.status ?? 'PENDING'}
+                        </span>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="ticket-section">
+                    <h2 className="ticket-section-title">Compra</h2>
+
+                    <div className="ticket-fields">
+                      <div className="ticket-field">
+                        <span className="field-label">Titular</span>
+                        <span className="field-value">{ticket.buyer?.fullName ?? '—'}</span>
+                      </div>
+
+                      <div className="ticket-field">
+                        <span className="field-label">Correo</span>
+                        <span className="field-value">{ticket.buyer?.email ?? '—'}</span>
+                      </div>
+
+                      {ticket.order?.id && (
+                        <div className="ticket-field">
+                          <span className="field-label">Orden</span>
+                          <span className="field-value">
+                            #{ticket.order.id.slice(0, 8).toUpperCase()}
+                          </span>
+                        </div>
+                      )}
+
+                      <div className="ticket-field">
+                        <span className="field-label">Total pagado</span>
+                        <span className="field-value accent">
+                          {total.toLocaleString('es-MX', {
+                            style: 'currency',
+                            currency,
+                          })}
+                        </span>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+
+                <div className="ticket-qr-section">
+                  {isBlocked ? (
+                    <div className={`qr-blocked qr-${normalizedStatus.toLowerCase()}`}>
+                      <div className="qr-blocked-icon">
+                        {isUsed ? (
+                          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                            <path d="M9 12l2 2 4-4" />
+                            <circle cx="12" cy="12" r="9" />
+                          </svg>
+                        ) : (
+                          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="M8.5 8.5l7 7" />
+                            <path d="M15.5 8.5l-7 7" />
+                          </svg>
+                        )}
+                      </div>
+
+                      <p className="qr-blocked-title">
+                        {normalizedStatus === 'USED'
+                          ? 'Este boleto ya fue utilizado'
+                          : normalizedStatus === 'REVOKED'
+                          ? 'Este boleto fue revocado'
+                          : 'Este boleto expiró'}
+                      </p>
+
+                      <p className="ticket-code-note">
+                        {normalizedStatus === 'USED'
+                          ? 'El código QR dejó de mostrarse porque ya no puede volver a usarse.'
+                          : 'Este boleto ya no es válido para ingreso.'}
+                      </p>
+                    </div>
+                  ) : qrLoading && !qrToken ? (
+                    <div className="qr-loading">
+                      <div className="spinner small" />
+                      <p className="ticket-code-note">Generando código seguro...</p>
+                    </div>
+                  ) : qrError ? (
+                    <div className="qr-blocked qr-expired">
+                      <div className="qr-blocked-icon">
+                        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                          <circle cx="12" cy="12" r="9" />
+                          <path d="M8.5 8.5l7 7" />
+                          <path d="M15.5 8.5l-7 7" />
+                        </svg>
+                      </div>
+
+                      <p className="qr-blocked-title">No se pudo generar el QR</p>
+                      <p className="ticket-code-note">{qrError}</p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="qr-real">
+                        <QRCode
+                          value={qrToken}
+                          size={140}
+                          bgColor="transparent"
+                          fgColor={color}
+                        />
+                      </div>
+
+                      <p className="ticket-code">#{shortId}</p>
+                      <p className="ticket-code-note">
+                        Este código se actualiza automáticamente.
+                      </p>
+
+                      {qrExpiresAt ? (
+                        <p className="ticket-code-note subtle">
+                          Válido hasta: {new Date(qrExpiresAt).toLocaleTimeString('es-MX')}
+                        </p>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="ticket-actions">
+              <Link href="/discover" className="action-btn secondary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
+                Descubrir más eventos
+              </Link>
+
+              <Link
+                href="/tickets/me"
+                className="action-btn primary"
+                style={{ background: color }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h6" />
+                  <polyline points="14,2 20,2 20,8" />
+                  <line x1="10" y1="14" x2="20" y2="4" />
+                </svg>
+                Ver todos mis boletos
+              </Link>
+            </div>
+          </>
+        )}
+      </main>
+    </div>
+  </>
+);
+}
+const CSS = `
+
+.ticket-body {
+  padding: 1rem 1.25rem 1.25rem;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1.25rem;
+  align-items: start;
 }
 
-const CSS = `
+.ticket-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ticket-section {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 14px;
+  padding: 0.9rem;
+}
+
+.ticket-section-title {
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  margin-bottom: 0.75rem;
+}
+
+.ticket-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem 1rem;
+}
+
+.ticket-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.field-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.field-value {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.field-value.accent {
+  color: var(--accent-color, var(--accent));
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .ticket-body {
+    grid-template-columns: 1fr;
+  }
+
+  .ticket-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .ticket-qr-section {
+    margin-top: 0.5rem;
+  }
+}
 
 .qr-loading{
   min-height: 220px;
@@ -549,5 +707,7 @@ const CSS = `
   .error-state{text-align:center;padding:4rem 0;color:var(--text-muted);}
   .back-link{display:inline-flex;align-items:center;color:var(--accent);font-size:0.875rem;font-weight:500;text-decoration:none;margin-top:0.75rem;}
 `
+
+
 
 ;
