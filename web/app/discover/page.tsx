@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { API_BASE_URL } from '@/lib/supabase/api';
 
 
@@ -231,12 +232,188 @@ function EmptyState({ query }: { query: string }) {
   );
 }
 
+/* ─── Navbar ─────────────────────────────────────────────────────────── */
+interface NavUser {
+  name?: string;
+  role?: string;
+}
+
+const NAV_LINKS = [
+  { label: 'Descubrir',   path: '/discover',   icon: '✦' },
+  { label: 'Eventos',     path: '/events',     icon: '🎟️' },
+  { label: 'Mis boletos', path: '/tickets/me', icon: '📲' },
+  { label: 'Dashboard',   path: '/dashboard',  icon: '⚡' },
+];
+
+function Navbar({ user }: { user?: NavUser }) {
+  const pathname = usePathname();
+  const [open, setOpen]         = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handle = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handle);
+    return () => document.removeEventListener('mousedown', handle);
+  }, [open]);
+
+  useEffect(() => { setOpen(false); }, [pathname]);
+
+  useEffect(() => {
+    document.body.style.overflow = open ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [open]);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
+  const isActive = (path: string) => pathname === path;
+
+  return (
+    <>
+      <nav className={`navbar${scrolled ? ' navbar--scrolled' : ''}`} role="navigation" aria-label="Navegación principal">
+        <div className="navbar-inner">
+          <Link href="/discover" className="navbar-logo" aria-label="Inicio">
+            <span className="text-xl font-bold tracking-tight">
+            <span style={{ color: "#FF4D00" }}>ticket</span>flow
+            </span>
+          </Link>
+
+          <ul className="navbar-links" role="list">
+            {NAV_LINKS.map(({ label, path }) => (
+              <li key={path}>
+                <Link href={path} className={`navbar-link${isActive(path) ? ' navbar-link--active' : ''}`}>
+                  {label}
+                  {isActive(path) && <span className="navbar-link-dot" aria-hidden="true" />}
+                </Link>
+              </li>
+            ))}
+            {user?.role === 'organizer' && (
+              <li>
+                <Link href="/staff/scanner" className={`navbar-link navbar-link--scanner${isActive('/staff/scanner') ? ' navbar-link--active' : ''}`}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                    <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
+                    <line x1="7" y1="12" x2="7" y2="12.01"/><line x1="12" y1="12" x2="17" y2="12"/>
+                    <line x1="12" y1="8" x2="17" y2="8"/><line x1="12" y1="16" x2="17" y2="16"/>
+                  </svg>
+                  Scanner
+                </Link>
+              </li>
+            )}
+          </ul>
+
+          <div className="navbar-auth">
+            {user ? (
+              <div className="navbar-user">
+                <div className="navbar-avatar" style={{ background: colorFor(user.name ?? 'U') }}>
+                  {(user.name ?? 'U')[0].toUpperCase()}
+                </div>
+                <span className="navbar-username">{user.name}</span>
+              </div>
+            ) : (
+              <>
+                <Link href="/login"    className="navbar-btn navbar-btn--ghost">Iniciar sesión</Link>
+                <Link href="/register" className="navbar-btn navbar-btn--accent">Registrarse</Link>
+              </>
+            )}
+          </div>
+
+          <button
+            className={`navbar-hamburger${open ? ' navbar-hamburger--open' : ''}`}
+            onClick={() => setOpen(v => !v)}
+            aria-label={open ? 'Cerrar menú' : 'Abrir menú'}
+            aria-expanded={open}
+            aria-controls="mobile-menu"
+          >
+            <span /><span /><span />
+          </button>
+        </div>
+      </nav>
+
+      <div
+        className={`mobile-overlay${open ? ' mobile-overlay--open' : ''}`}
+        aria-hidden={!open}
+        onClick={() => setOpen(false)}
+      />
+      <div
+        id="mobile-menu"
+        className={`mobile-menu${open ? ' mobile-menu--open' : ''}`}
+        ref={menuRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menú de navegación"
+      >
+        <div className="mobile-menu-header">
+          <span className="mobile-menu-title">Menú</span>
+          <button className="mobile-menu-close" onClick={() => setOpen(false)} aria-label="Cerrar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {user && (
+          <div className="mobile-user-card">
+            <div className="navbar-avatar mobile-user-avatar" style={{ background: colorFor(user.name ?? 'U') }}>
+              {(user.name ?? 'U')[0].toUpperCase()}
+            </div>
+            <div>
+              <div className="mobile-user-name">{user.name}</div>
+              {user.role && <div className="mobile-user-role">{user.role}</div>}
+            </div>
+          </div>
+        )}
+
+        <ul className="mobile-nav-list" role="list">
+          {NAV_LINKS.map(({ label, path, icon }) => (
+            <li key={path}>
+              <Link href={path} className={`mobile-nav-link${isActive(path) ? ' mobile-nav-link--active' : ''}`}>
+                <span className="mobile-nav-icon">{icon}</span>
+                <span>{label}</span>
+                {isActive(path) && (
+                  <svg className="mobile-nav-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <polyline points="20 6 9 17 4 12"/>
+                  </svg>
+                )}
+              </Link>
+            </li>
+          ))}
+          {user?.role === 'organizer' && (
+            <li>
+              <Link href="/staff/scanner" className={`mobile-nav-link mobile-nav-link--scanner${isActive('/staff/scanner') ? ' mobile-nav-link--active' : ''}`}>
+                <span className="mobile-nav-icon">📷</span>
+                <span>Scanner</span>
+                <span className="mobile-nav-badge">Organizer</span>
+              </Link>
+            </li>
+          )}
+        </ul>
+
+        {!user && (
+          <div className="mobile-auth-row">
+            <Link href="/login"    className="navbar-btn navbar-btn--ghost  mobile-auth-btn">Iniciar sesión</Link>
+            <Link href="/register" className="navbar-btn navbar-btn--accent mobile-auth-btn">Registrarse</Link>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 /* ─── Main Page ──────────────────────────────────────────────────────── */
 export default function DiscoverPage() {
   const [events, setEvents]   = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch]   = useState('');
   const [city, setCity]       = useState('');
+  // Replace with your actual auth/session hook
+  const [user] = useState<NavUser | undefined>(undefined);
 
   const heroRef     = useRef<HTMLElement>(null);
   const eyebrowRef  = useRef<HTMLDivElement>(null);
@@ -366,6 +543,7 @@ export default function DiscoverPage() {
     <>
       <style>{CSS}</style>
       <div className="page-root">
+        <Navbar user={user} />
 
         {/* ── Hero ── */}
         <header className="hero" ref={heroRef}>
@@ -939,4 +1117,346 @@ const CSS = `
   .empty-icon { color: var(--text-faint); margin-bottom: 0.5rem; }
   .empty-state h3 { font-size: 1rem; font-weight: 600; color: var(--text); }
   .empty-state p  { font-size: 0.875rem; max-width: 34ch; }
+
+  /* ── Navbar ── */
+  .navbar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    height: 60px;
+    background: oklch(0.09 0 0 / 0.75);
+    backdrop-filter: blur(18px) saturate(1.4);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4);
+    border-bottom: 1px solid var(--border);
+    transition: background var(--transition), box-shadow var(--transition);
+  }
+  .navbar--scrolled {
+    background: oklch(0.09 0 0 / 0.92);
+    box-shadow: 0 4px 24px oklch(0 0 0 / 0.35);
+  }
+  .navbar-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    height: 100%;
+    padding: 0 clamp(1rem, 4vw, 2.5rem);
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+
+  /* Logo */
+  .navbar-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    text-decoration: none;
+    color: var(--text);
+    flex-shrink: 0;
+    margin-right: 2.5rem;
+  }
+  .navbar-logo-mark {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, var(--accent) 0%, #7c3aed 100%);
+    color: #0e0e0f;
+    flex-shrink: 0;
+  }
+  .navbar-logo-text {
+    font-size: 1rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--text);
+  }
+
+  /* Desktop links */
+  .navbar-links {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    list-style: none;
+    flex: 1;
+  }
+  .navbar-link {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.45rem 0.8rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-decoration: none;
+    border-radius: var(--radius-md);
+    transition: color var(--transition), background var(--transition);
+  }
+  .navbar-link:hover { color: var(--text); background: var(--surface-2); }
+  .navbar-link--active {
+    color: var(--text);
+    background: var(--surface-2);
+  }
+  .navbar-link-dot {
+    position: absolute;
+    bottom: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .navbar-link--scanner {
+    color: var(--accent);
+    border: 1px solid oklch(0.6 0.12 185 / 0.3);
+    background: var(--accent-dim);
+  }
+  .navbar-link--scanner:hover { background: oklch(0.6 0.12 185 / 0.22); color: var(--accent); }
+
+  /* Auth */
+  .navbar-auth {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .navbar-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.45rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background var(--transition), color var(--transition), border-color var(--transition);
+    white-space: nowrap;
+  }
+  .navbar-btn--ghost {
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    background: transparent;
+  }
+  .navbar-btn--ghost:hover { color: var(--text); border-color: var(--border-hover); background: var(--surface-2); }
+  .navbar-btn--accent {
+    color: #0e0e0f;
+    background: var(--accent);
+    border: 1px solid transparent;
+  }
+  .navbar-btn--accent:hover { background: var(--accent-hover); }
+
+  /* User chip */
+  .navbar-user {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .navbar-avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    font-weight: 800;
+    color: #0e0e0f;
+    flex-shrink: 0;
+  }
+  .navbar-username {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  /* Hamburger */
+  .navbar-hamburger {
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    align-items: center;
+    margin-left: auto;
+    transition: border-color var(--transition), background var(--transition);
+    flex-shrink: 0;
+  }
+  .navbar-hamburger:hover { border-color: var(--border-hover); background: var(--surface-2); }
+  .navbar-hamburger span {
+    display: block;
+    width: 16px;
+    height: 1.5px;
+    background: var(--text-muted);
+    border-radius: 2px;
+    transition: transform 0.3s cubic-bezier(0.16,1,0.3,1), opacity 0.2s;
+    transform-origin: center;
+  }
+  .navbar-hamburger--open span:nth-child(1) { transform: translateY(6.5px) rotate(45deg); }
+  .navbar-hamburger--open span:nth-child(2) { opacity: 0; transform: scaleX(0); }
+  .navbar-hamburger--open span:nth-child(3) { transform: translateY(-6.5px) rotate(-45deg); }
+
+  /* ── Mobile overlay ── */
+  .mobile-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 98;
+    background: oklch(0 0 0 / 0.6);
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+  }
+  .mobile-overlay--open {
+    opacity: 1;
+    pointer-events: all;
+  }
+
+  /* ── Mobile menu drawer ── */
+  .mobile-menu {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 99;
+    width: min(320px, 88vw);
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .mobile-menu--open { transform: translateX(0); }
+
+  .mobile-menu-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .mobile-menu-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .mobile-menu-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: color var(--transition), border-color var(--transition), background var(--transition);
+  }
+  .mobile-menu-close:hover { color: var(--text); border-color: var(--border-hover); background: var(--surface-2); }
+
+  .mobile-user-card {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .mobile-user-avatar { width: 40px; height: 40px; border-radius: var(--radius-md); font-size: 1rem; }
+  .mobile-user-name { font-size: 0.9rem; font-weight: 700; color: var(--text); }
+  .mobile-user-role {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-top: 0.1rem;
+  }
+
+  .mobile-nav-list {
+    list-style: none;
+    padding: 0.75rem 0.75rem;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .mobile-nav-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-lg);
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color var(--transition), background var(--transition);
+  }
+  .mobile-nav-link:hover { color: var(--text); background: var(--surface-2); }
+  .mobile-nav-link--active { color: var(--text); background: var(--surface-2); }
+  .mobile-nav-icon { font-size: 1.1rem; width: 24px; text-align: center; flex-shrink: 0; }
+  .mobile-nav-check { margin-left: auto; color: var(--accent); flex-shrink: 0; }
+  .mobile-nav-link--scanner { color: var(--accent); }
+  .mobile-nav-link--scanner:hover { background: var(--accent-dim); }
+  .mobile-nav-badge {
+    margin-left: auto;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-dim);
+    border: 1px solid oklch(0.6 0.12 185 / 0.3);
+    border-radius: 9999px;
+    padding: 0.15rem 0.5rem;
+    flex-shrink: 0;
+  }
+
+  .mobile-auth-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem 1.25rem 1.5rem;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .mobile-auth-btn { width: 100%; justify-content: center; padding: 0.65rem 1rem; font-size: 0.9rem; }
+
+  /* Offset page content for fixed navbar */
+  .page-root { padding-top: 60px; }
+
+  /* ── Responsive: hide/show navbar elements ── */
+  @media (max-width: 768px) {
+    .navbar-links  { display: none; }
+    .navbar-auth   { display: none; }
+    .navbar-hamburger { display: flex; }
+    .mobile-overlay { display: block; }
+  }
+  @media (min-width: 769px) {
+    .mobile-menu { display: none !important; }
+    .mobile-overlay { display: none !important; }
+  }
+  @media (max-width: 900px) {
+    .navbar-logo { margin-right: 1.5rem; }
+    .navbar-link { padding: 0.4rem 0.6rem; font-size: 0.82rem; }
+  }
 `;
