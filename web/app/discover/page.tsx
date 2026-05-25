@@ -4,6 +4,8 @@ import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { API_BASE_URL } from '@/lib/supabase/api';
+import { createBrowserClient } from '@supabase/ssr';
+
 
 
 /* ─── Types ─────────────────────────────────────────────────────────────── */
@@ -234,8 +236,10 @@ function EmptyState({ query }: { query: string }) {
 
 /* ─── Navbar ─────────────────────────────────────────────────────────── */
 interface NavUser {
-  name?: string;
-  role?: string;
+  name?: string | null;
+  email?: string;
+  role?: string | null;
+  avatarUrl?: string | null;
 }
 
 const NAV_LINKS = [
@@ -245,26 +249,43 @@ const NAV_LINKS = [
   { label: 'Dashboard',   path: '/dashboard',  icon: '⚡' },
 ];
 
-function Navbar({ user }: { user?: NavUser }) {
+function Navbar({
+  user,
+  sessionLoading,
+}: {
+  user?: NavUser;
+  sessionLoading?: boolean;
+}) {
   const pathname = usePathname();
-  const [open, setOpen]         = useState(false);
+  const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    if (!open) return;
-    const handle = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handle);
-    return () => document.removeEventListener('mousedown', handle);
-  }, [open]);
+  const closeMenu = useCallback(() => setOpen(false), []);
+  const toggleMenu = useCallback(() => setOpen((v) => !v), []);
 
-  useEffect(() => { setOpen(false); }, [pathname]);
+useEffect(() => {
+  if (!open) return;
+
+  const handlePointerDown = (e: PointerEvent) => {
+    const target = e.target as Node;
+    if (menuRef.current && !menuRef.current.contains(target)) {
+      closeMenu();
+    }
+  };
+
+  document.addEventListener('pointerdown', handlePointerDown);
+
+  return () => {
+    document.removeEventListener('pointerdown', handlePointerDown);
+  };
+}, [open, closeMenu]);
 
   useEffect(() => {
     document.body.style.overflow = open ? 'hidden' : '';
-    return () => { document.body.style.overflow = ''; };
+    return () => {
+      document.body.style.overflow = '';
+    };
   }, [open]);
 
   useEffect(() => {
@@ -274,34 +295,43 @@ function Navbar({ user }: { user?: NavUser }) {
   }, []);
 
   const isActive = (path: string) => pathname === path;
+  const displayName = user?.name ?? user?.email ?? 'Usuario';
+  const displayInitial = displayName[0]?.toUpperCase() ?? 'U';
 
   return (
     <>
-      <nav className={`navbar${scrolled ? ' navbar--scrolled' : ''}`} role="navigation" aria-label="Navegación principal">
+      <nav
+        className={`navbar ${scrolled ? 'navbar--scrolled' : ''}`}
+        role="navigation"
+        aria-label="Navegación principal"
+      >
         <div className="navbar-inner">
           <Link href="/discover" className="navbar-logo" aria-label="Inicio">
-            <span className="text-xl font-bold tracking-tight">
-            <span style={{ color: "#FF4D00" }}>ticket</span>flow
-            </span>
+            <div className="navbar-logo-mark">T</div>
+            <span className="navbar-logo-text">ticketflow</span>
           </Link>
 
           <ul className="navbar-links" role="list">
             {NAV_LINKS.map(({ label, path }) => (
               <li key={path}>
-                <Link href={path} className={`navbar-link${isActive(path) ? ' navbar-link--active' : ''}`}>
+                <Link
+                  href={path}
+                  className={`navbar-link ${isActive(path) ? 'navbar-link--active' : ''}`}
+                >
                   {label}
                   {isActive(path) && <span className="navbar-link-dot" aria-hidden="true" />}
                 </Link>
               </li>
             ))}
+
             {user?.role === 'organizer' && (
               <li>
-                <Link href="/staff/scanner" className={`navbar-link navbar-link--scanner${isActive('/staff/scanner') ? ' navbar-link--active' : ''}`}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/>
-                    <line x1="7" y1="12" x2="7" y2="12.01"/><line x1="12" y1="12" x2="17" y2="12"/>
-                    <line x1="12" y1="8" x2="17" y2="8"/><line x1="12" y1="16" x2="17" y2="16"/>
-                  </svg>
+                <Link
+                  href="/staff/scanner"
+                  className={`navbar-link navbar-link--scanner ${
+                    isActive('/staff/scanner') ? 'navbar-link--active' : ''
+                  }`}
+                >
                   Scanner
                 </Link>
               </li>
@@ -309,62 +339,95 @@ function Navbar({ user }: { user?: NavUser }) {
           </ul>
 
           <div className="navbar-auth">
-            {user ? (
+            {sessionLoading ? null : user ? (
               <div className="navbar-user">
-                <div className="navbar-avatar" style={{ background: colorFor(user.name ?? 'U') }}>
-                  {(user.name ?? 'U')[0].toUpperCase()}
+                <div
+                  className="navbar-avatar"
+                  style={{ background: colorFor(displayName) }}
+                >
+                  {displayInitial}
                 </div>
-                <span className="navbar-username">{user.name}</span>
+                <span className="navbar-username">{displayName}</span>
               </div>
             ) : (
               <>
-                <Link href="/login"    className="navbar-btn navbar-btn--ghost">Iniciar sesión</Link>
-                <Link href="/register" className="navbar-btn navbar-btn--accent">Registrarse</Link>
+                <Link href="/login" className="navbar-btn navbar-btn--ghost">
+                  Iniciar sesión
+                </Link>
+                <Link href="/register" className="navbar-btn navbar-btn--accent">
+                  Registrarse
+                </Link>
               </>
             )}
           </div>
-
-          <button
-            className={`navbar-hamburger${open ? ' navbar-hamburger--open' : ''}`}
-            onClick={() => setOpen(v => !v)}
-            aria-label={open ? 'Cerrar menú' : 'Abrir menú'}
-            aria-expanded={open}
-            aria-controls="mobile-menu"
-          >
-            <span /><span /><span />
-          </button>
+<button
+  type="button"
+  className={`navbar-hamburger ${open ? 'navbar-hamburger--open' : ''}`}
+  onClick={(e) => {
+    e.stopPropagation();
+    toggleMenu();
+  }}
+  aria-label={open ? 'Cerrar menú' : 'Abrir menú'}
+  aria-expanded={open}
+  aria-controls="mobile-menu"
+>
+  <span />
+  <span />
+  <span />
+</button>
         </div>
       </nav>
 
       <div
-        className={`mobile-overlay${open ? ' mobile-overlay--open' : ''}`}
+        className={`mobile-overlay ${open ? 'mobile-overlay--open' : ''}`}
         aria-hidden={!open}
-        onClick={() => setOpen(false)}
       />
+
       <div
         id="mobile-menu"
-        className={`mobile-menu${open ? ' mobile-menu--open' : ''}`}
         ref={menuRef}
+        className={`mobile-menu ${open ? 'mobile-menu--open' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-label="Menú de navegación"
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="mobile-menu-header">
           <span className="mobile-menu-title">Menú</span>
-          <button className="mobile-menu-close" onClick={() => setOpen(false)} aria-label="Cerrar">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
-          </button>
+<button
+  type="button"
+  className="mobile-menu-close"
+  onClick={(e) => {
+    e.stopPropagation();
+    closeMenu();
+  }}
+  aria-label="Cerrar"
+>
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+  >
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+</button>
         </div>
 
-        {user && (
+        {!sessionLoading && user && (
           <div className="mobile-user-card">
-            <div className="navbar-avatar mobile-user-avatar" style={{ background: colorFor(user.name ?? 'U') }}>
-              {(user.name ?? 'U')[0].toUpperCase()}
+            <div
+              className="navbar-avatar mobile-user-avatar"
+              style={{ background: colorFor(displayName) }}
+            >
+              {displayInitial}
             </div>
             <div>
-              <div className="mobile-user-name">{user.name}</div>
+              <div className="mobile-user-name">{displayName}</div>
               {user.role && <div className="mobile-user-role">{user.role}</div>}
             </div>
           </div>
@@ -373,20 +436,27 @@ function Navbar({ user }: { user?: NavUser }) {
         <ul className="mobile-nav-list" role="list">
           {NAV_LINKS.map(({ label, path, icon }) => (
             <li key={path}>
-              <Link href={path} className={`mobile-nav-link${isActive(path) ? ' mobile-nav-link--active' : ''}`}>
+              <Link
+                href={path}
+                className={`mobile-nav-link ${isActive(path) ? 'mobile-nav-link--active' : ''}`}
+                onClick={closeMenu}
+              >
                 <span className="mobile-nav-icon">{icon}</span>
                 <span>{label}</span>
-                {isActive(path) && (
-                  <svg className="mobile-nav-check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polyline points="20 6 9 17 4 12"/>
-                  </svg>
-                )}
+                {isActive(path) && <span className="mobile-nav-check">✓</span>}
               </Link>
             </li>
           ))}
+
           {user?.role === 'organizer' && (
             <li>
-              <Link href="/staff/scanner" className={`mobile-nav-link mobile-nav-link--scanner${isActive('/staff/scanner') ? ' mobile-nav-link--active' : ''}`}>
+              <Link
+                href="/staff/scanner"
+                className={`mobile-nav-link mobile-nav-link--scanner ${
+                  isActive('/staff/scanner') ? 'mobile-nav-link--active' : ''
+                }`}
+                onClick={closeMenu}
+              >
                 <span className="mobile-nav-icon">📷</span>
                 <span>Scanner</span>
                 <span className="mobile-nav-badge">Organizer</span>
@@ -395,10 +465,22 @@ function Navbar({ user }: { user?: NavUser }) {
           )}
         </ul>
 
-        {!user && (
+        {!sessionLoading && !user && (
           <div className="mobile-auth-row">
-            <Link href="/login"    className="navbar-btn navbar-btn--ghost  mobile-auth-btn">Iniciar sesión</Link>
-            <Link href="/register" className="navbar-btn navbar-btn--accent mobile-auth-btn">Registrarse</Link>
+            <Link
+              href="/login"
+              className="navbar-btn navbar-btn--ghost mobile-auth-btn"
+              onClick={closeMenu}
+            >
+              Iniciar sesión
+            </Link>
+            <Link
+              href="/register"
+              className="navbar-btn navbar-btn--accent mobile-auth-btn"
+              onClick={closeMenu}
+            >
+              Registrarse
+            </Link>
           </div>
         )}
       </div>
@@ -406,23 +488,93 @@ function Navbar({ user }: { user?: NavUser }) {
   );
 }
 
-/* ─── Main Page ──────────────────────────────────────────────────────── */
 export default function DiscoverPage() {
-  const [events, setEvents]   = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch]   = useState('');
-  const [city, setCity]       = useState('');
-  // Replace with your actual auth/session hook
-  const [user] = useState<NavUser | undefined>(undefined);
 
-  const heroRef     = useRef<HTMLElement>(null);
-  const eyebrowRef  = useRef<HTMLDivElement>(null);
-  const titleRef    = useRef<HTMLHeadingElement>(null);
-  const subRef      = useRef<HTMLParagraphElement>(null);
-  const searchRef   = useRef<HTMLDivElement>(null);
-  const gridRef     = useRef<HTMLDivElement>(null);
-  const cardsRef    = useRef<HTMLDivElement>(null);
-  const gsapLoaded  = useRef(false);
+/* ─── Main Page ──────────────────────────────────────────────────────── */
+const [events, setEvents] = useState<Event[]>([]);
+const [loading, setLoading] = useState(true);
+const [search, setSearch] = useState('');
+const [city, setCity] = useState('');
+
+const supabase = useMemo(
+  () =>
+    createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    ),
+  []
+);
+
+const [user, setUser] = useState<NavUser | undefined>(undefined);
+const [sessionLoading, setSessionLoading] = useState(true);
+
+
+const heroRef = useRef<HTMLElement | null>(null);
+const eyebrowRef = useRef<HTMLDivElement | null>(null);
+const titleRef = useRef<HTMLHeadingElement | null>(null);
+const subRef = useRef<HTMLParagraphElement | null>(null);
+const searchRef = useRef<HTMLDivElement | null>(null);
+const gridRef = useRef<HTMLDivElement | null>(null);
+const cardsRef = useRef<HTMLDivElement | null>(null);
+const gsapLoaded = useRef(false);
+
+
+useEffect(() => {
+  let mounted = true;
+
+  async function loadSession() {
+    try {
+      const { data, error } = await supabase.auth.getSession();
+      if (error) throw error;
+
+      if (!mounted) return;
+
+      const session = data.session;
+
+      if (session?.user) {
+        const u = session.user;
+        setUser({
+          email: u.email ?? '',
+          name: u.user_metadata?.full_name ?? u.user_metadata?.name ?? null,
+          avatarUrl: u.user_metadata?.avatar_url ?? null,
+          role: u.user_metadata?.role ?? null,
+        });
+      } else {
+        setUser(undefined);
+      }
+    } catch (error) {
+      console.error('Error cargando sesión:', error);
+      if (mounted) setUser(undefined);
+    } finally {
+      if (mounted) setSessionLoading(false);
+    }
+  }
+
+  loadSession();
+
+  const {
+    data: { subscription },
+  } = supabase.auth.onAuthStateChange((_event, session) => {
+    if (session?.user) {
+      const u = session.user;
+      setUser({
+        email: u.email ?? '',
+        name: u.user_metadata?.full_name ?? u.user_metadata?.name ?? null,
+        avatarUrl: u.user_metadata?.avatar_url ?? null,
+        role: u.user_metadata?.role ?? null,
+      });
+    } else {
+      setUser(undefined);
+    }
+
+    setSessionLoading(false);
+  });
+
+  return () => {
+    mounted = false;
+    subscription.unsubscribe();
+  };
+}, [supabase]);
 
   /* ── Fetch events ── */
   useEffect(() => {
@@ -543,7 +695,7 @@ export default function DiscoverPage() {
     <>
       <style>{CSS}</style>
       <div className="page-root">
-        <Navbar user={user} />
+<Navbar user={user} sessionLoading={sessionLoading} />
 
         {/* ── Hero ── */}
         <header className="hero" ref={heroRef}>
@@ -1320,7 +1472,7 @@ const CSS = `
   }
   .mobile-overlay--open {
     opacity: 1;
-    pointer-events: all;
+    pointer-events: none;
   }
 
   /* ── Mobile menu drawer ── */
