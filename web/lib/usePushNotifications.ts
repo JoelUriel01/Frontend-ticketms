@@ -39,7 +39,7 @@ export async function enablePushNotifications(
   // 3. Suscribir al usuario
   const subscription = await registration.pushManager.subscribe({
     userVisibleOnly:      true,
-    applicationServerKey: urlBase64ToUint8Array(publicKey),
+    applicationServerKey: urlBase64ToUint8Array(publicKey).buffer as ArrayBuffer,
   });
  
   // 4. Enviar suscripción al backend
