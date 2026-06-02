@@ -577,13 +577,15 @@ useEffect(() => {
 }, [supabase]);
 
   /* ── Fetch events ── */
-  useEffect(() => {
-    fetch(`${API_BASE_URL}/events`)
-      .then(r => r.ok ? r.json() : [])
-      .then(data => setEvents(data))
-      .catch(() => setEvents([]))
-      .finally(() => setLoading(false));
-  }, []);
+ useEffect(() => {
+  fetch(`${API_BASE_URL}/events`)
+    .then(r => r.ok ? r.json() : [])
+    .then(data => setEvents(
+      data.filter((e: Event) => new Date(e.endsAt) > new Date()) // ← aquí
+    ))
+    .catch(() => setEvents([]))
+    .finally(() => setLoading(false));
+}, []);
 
   /* ── Load GSAP & animate hero ── */
   useEffect(() => {
