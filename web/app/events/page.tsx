@@ -5,9 +5,9 @@ import { createClient } from '@/lib/supabase/client';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { API_BASE_URL } from '@/lib/supabase/api';
+import { enablePushNotifications, disablePushNotifications } from '@/lib/usePushNotifications';
 
 
-/* ─── Types ─────────────────────────────────────────────── */
 interface TicketTypeRecord {
   id: string;
   name: string;
@@ -491,6 +491,10 @@ export default function EventsPage() {
   const [sectionPrices, setSectionPrices] = useState<SectionPrice[]>(DEFAULT_SECTION_PRICES);
   const [freeTicketTypes, setFreeTicketTypes] = useState<FreeTicketType[]>([{ ...EMPTY_TICKET_TYPE }]);
 
+  // ── Push notifications ───────────────────────────────────
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+
   const supabase = createClient();
   const isOrganizer = profile?.role === 'ORGANIZER';
   const showForm = formMode !== null;
@@ -515,6 +519,45 @@ export default function EventsPage() {
   }
 
   useEffect(() => { loadData(); }, []);
+
+  // ── Detectar si ya hay suscripción push activa ───────────
+  useEffect(() => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    navigator.serviceWorker.ready.then(reg =>
+      reg.pushManager.getSubscription().then(sub => setPushEnabled(!!sub))
+    );
+  }, []);
+
+  // ── Toggle push notifications ────────────────────────────
+  async function handleTogglePush() {
+    setPushLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setError('Debes iniciar sesión primero.'); return; }
+
+      if (pushEnabled) {
+        await disablePushNotifications(API_BASE_URL, session.access_token);
+        setPushEnabled(false);
+        setSuccessMsg('Notificaciones desactivadas.');
+      } else {
+        const granted = await Notification.requestPermission();
+        if (granted !== 'granted') {
+          setError('Permiso de notificaciones denegado. Habilítalo en la configuración del navegador.');
+          return;
+        }
+        const ok = await enablePushNotifications(API_BASE_URL, session.access_token);
+        if (ok) {
+          setPushEnabled(true);
+          setSuccessMsg('Notificaciones activadas. Recibirás avisos de nuevos eventos.');
+        }
+      }
+    } catch (err: any) {
+      setError(err.message ?? 'Error al gestionar notificaciones.');
+    } finally {
+      setPushLoading(false);
+      setTimeout(() => setSuccessMsg(''), 3500);
+    }
+  }
 
   // ── Abrir formulario de creación ─────────────────────────
   function openCreateForm() {
@@ -691,7 +734,11 @@ export default function EventsPage() {
       if (!res.ok) throw new Error('Error al cambiar estado');
       const updated = await res.json();
       setEvents(prev => prev.map(ev => ev.id === event.id ? { ...ev, isPublished: updated.isPublished } : ev));
-      setSuccessMsg(updated.isPublished ? 'Evento publicado.' : 'Evento despublicado.');
+      setSuccessMsg(
+        updated.isPublished
+          ? '🎉 Evento publicado. Se enviaron notificaciones push a los suscriptores.'
+          : 'Evento despublicado.'
+      );
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -735,6 +782,39 @@ export default function EventsPage() {
               </div>
             </div>
             {isOrganizer && (
+              <div className="header-actions">
+                {'Notification' in window && (
+                  <motion.button
+                    className={`btn btn-notif ${pushEnabled ? 'notif-on' : 'notif-off'}`}
+                    onClick={handleTogglePush}
+                    disabled={pushLoading}
+                    whileHover={{ y: -1 }}
+                    whileTap={{ y: 0, scale: 0.97 }}
+                    transition={{ type: 'spring', damping: 20, stiffness: 400 }}
+                    title={pushEnabled ? 'Desactivar notificaciones push' : 'Activar notificaciones push'}
+                  >
+                    {pushLoading ? (
+                      <span className="notif-spinner" />
+                    ) : pushEnabled ? (
+                      <>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                          <line x1="1" y1="1" x2="23" y2="23" />
+                        </svg>
+                        <span className="notif-label">Notificaciones on</span>
+                      </>
+                    ) : (
+                      <>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                        </svg>
+                        <span className="notif-label">Notificaciones</span>
+                      </>
+                    )}
+                  </motion.button>
+                )}
               <motion.button
                 className="btn btn-primary"
                 onClick={showForm ? closeForm : openCreateForm}
@@ -743,6 +823,7 @@ export default function EventsPage() {
               >
                 {showForm ? 'Cancelar' : '+ Nuevo evento'}
               </motion.button>
+              </div>
             )}
           </div>
         </motion.header>
@@ -1725,6 +1806,39 @@ const CSS = `
   .btn-publish:hover:not(:disabled) { background: rgba(34,197,94,0.2); }
   .btn-outline-danger { background: var(--red-dim); color: var(--red); border: 1px solid var(--red-border); }
   .btn-outline-danger:hover:not(:disabled) { background: rgba(239,68,68,0.2); }
+
+  /* ── Notification button ── */
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .btn-notif {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    padding: 0.45rem 0.85rem;
+    gap: 0.35rem;
+  }
+  .btn-notif:hover:not(:disabled) { background: var(--surface-3); color: var(--text); }
+  .btn-notif.notif-on {
+    background: rgba(34,197,94,0.1);
+    border-color: rgba(34,197,94,0.28);
+    color: var(--green);
+  }
+  .btn-notif.notif-on:hover:not(:disabled) { background: rgba(34,197,94,0.18); }
+  .notif-label { display: none; }
+  @media (min-width: 480px) { .notif-label { display: inline; } }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .notif-spinner {
+    width: 13px; height: 13px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    display: inline-block;
+    animation: spin 0.7s linear infinite;
+  }
 
   /* ── Skeleton ── */
   @keyframes shimmer { to { background-position: -200% center; } }

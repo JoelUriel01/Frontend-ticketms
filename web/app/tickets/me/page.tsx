@@ -31,6 +31,7 @@ interface Ticket {
     venueName: string;
     venueCity: string;
     startsAt: string;
+    endsAt: string;   // ← para saber si el evento ya terminó
   };
   order?: {
     id: string;
@@ -46,6 +47,7 @@ interface EventGroup {
   venueName: string;
   venueCity: string;
   startsAt: string;
+  endsAt: string;     // ← para saber si el evento ya terminó
   tickets: Ticket[];
   color: string;
   abbr: string;
@@ -163,6 +165,10 @@ function colorFor(str: string) {
 function initials(t: string) {
   return t.split(' ').slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 }
+function isEventOver(endsAt: string) {
+  if (!endsAt) return false;
+  return new Date(endsAt).getTime() < Date.now();
+}
 function groupTicketsByEvent(tickets: Ticket[]): EventGroup[] {
   const map = new Map<string, EventGroup>();
   for (const t of tickets) {
@@ -174,6 +180,7 @@ function groupTicketsByEvent(tickets: Ticket[]): EventGroup[] {
         venueName: t.event?.venueName ?? '—',
         venueCity: t.event?.venueCity ?? '—',
         startsAt: t.event?.startsAt ?? '',
+        endsAt: t.event?.endsAt ?? '',
         tickets: [],
         color: colorFor(title),
         abbr: initials(title),
@@ -610,12 +617,13 @@ interface TicketRowProps {
   ticket: Ticket;
   onTransfer: (ticket: Ticket) => void;
   onCancelTransfer?: () => void;
+  eventOver?: boolean;
 }
 
-function TicketRow({ ticket, onTransfer, onCancelTransfer }: TicketRowProps) {
+function TicketRow({ ticket, onTransfer, onCancelTransfer, eventOver = false }: TicketRowProps) {
   const shortId = ticket.id.slice(0, 8).toUpperCase();
-  const canTransfer = (ticket.status ?? '').toLowerCase() === 'active';
-  const canCancel = (ticket.status ?? '').toLowerCase() === 'transfer_pending' && !!onCancelTransfer;
+  const canTransfer = (ticket.status ?? '').toLowerCase() === 'active' && !eventOver;
+  const canCancel = (ticket.status ?? '').toLowerCase() === 'transfer_pending' && !!onCancelTransfer && !eventOver;
 
   return (
     <div className="ticket-row-item">
@@ -695,6 +703,7 @@ function EventCard({ group, index, onTransfer, onCancelTransfer, pendingTransfer
     });
   }, [index]);
 
+  const over = isEventOver(group.endsAt);
   const totalCost = group.tickets.reduce((sum, t) => sum + Number(t.price), 0);
   const activeCount = group.tickets.filter((t) => (t.status ?? '').toLowerCase() === 'active').length;
 
@@ -702,9 +711,21 @@ function EventCard({ group, index, onTransfer, onCancelTransfer, pendingTransfer
     <div ref={cardRef} className="event-card" style={{ '--accent-color': group.color } as React.CSSProperties}>
       <div className="event-card-header" onClick={() => setExpanded((v) => !v)}>
         <div className="event-header-left">
-          <div className="event-avatar" style={{ background: group.color }}>{group.abbr}</div>
+          <div className="event-avatar" style={{ background: over ? '#52525b' : group.color }}>{group.abbr}</div>
           <div className="event-meta">
-            <h2 className="event-title">{group.title}</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <h2 className="event-title">{group.title}</h2>
+              {over && (
+                <span style={{
+                  fontSize: '0.65rem', fontWeight: 600, letterSpacing: '0.05em',
+                  padding: '2px 7px', borderRadius: 999,
+                  background: 'rgba(255,255,255,0.07)', color: '#71717a',
+                  whiteSpace: 'nowrap',
+                }}>
+                  FINALIZADO
+                </span>
+              )}
+            </div>
             {group.startsAt && (
               <p className="event-datetime">{fmtDate(group.startsAt)} · {fmtTime(group.startsAt)}</p>
             )}
@@ -743,6 +764,7 @@ function EventCard({ group, index, onTransfer, onCancelTransfer, pendingTransfer
                 key={ticket.id}
                 ticket={ticket}
                 onTransfer={onTransfer}
+                eventOver={over}
                 onCancelTransfer={
                   pendingTransferMap[ticket.id]
                     ? () => onCancelTransfer(pendingTransferMap[ticket.id], ticket)
@@ -886,6 +908,10 @@ export default function MyTicketsPage() {
   const totalTickets = tickets.length;
   const totalEvents = groups.length;
   const activeTickets = tickets.filter((t) => (t.status ?? '').toLowerCase() === 'active').length;
+  // Solo cuenta como transferibles los boletos activos de eventos que AÚN no han terminado
+  const transferableTickets = tickets.filter((t) =>
+    (t.status ?? '').toLowerCase() === 'active' && !isEventOver(t.event?.endsAt ?? ''),
+  ).length;
 
   return (
     <>
@@ -922,12 +948,12 @@ export default function MyTicketsPage() {
                     </svg>
                     {totalTickets} {totalTickets === 1 ? 'boleto' : 'boletos'}
                   </span>
-                  {activeTickets > 0 && (
+                  {transferableTickets > 0 && (
                     <span className="summary-pill summary-pill-active">
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                         <path d="M5 12h14M12 5l7 7-7 7" />
                       </svg>
-                      {activeTickets} transferibles
+                      {transferableTickets} transferibles
                     </span>
                   )}
                 </div>
