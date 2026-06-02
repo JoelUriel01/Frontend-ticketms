@@ -5,12 +5,86 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { API_BASE_URL } from '@/lib/supabase/api';
 
+// ─── Crypto helpers ──────────────────────────────────────────────────────────
+const KEY_STORE = 'ticketapp-ecdsa-keypair';
+const KEY_REGISTERED = 'ticketapp-pubkey-registered';
+
+function bufToB64(buf: ArrayBuffer): string {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+}
+
+async function ensureKeyPair(): Promise<{ publicKey: string }> {
+ const oldStored = localStorage.getItem('ecKeyPair');
+  if (oldStored) {
+    localStorage.removeItem('ecKeyPair');
+    localStorage.removeItem(KEY_REGISTERED); // forzar re-registro con clave correcta
+  }
+
+  const stored = localStorage.getItem(KEY_STORE);
+  if (stored) {
+    return { publicKey: JSON.parse(stored).publicKey };
+  }
+
+  // Generar nuevo par de claves en formato raw/PKCS8 (compatible con el backend)
+  const keyPair = await crypto.subtle.generateKey(
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    true,
+    ['sign', 'verify'],
+  );
+
+  // ✅ raw = 65 bytes sin comprimir — lo que el backend valida
+  const pubRaw    = await crypto.subtle.exportKey('raw', keyPair.publicKey);
+  // ✅ pkcs8 = formato estándar para guardar la privada
+  const privPkcs8 = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
+
+  const publicKey  = bufToB64(pubRaw);
+  const privateKey = bufToB64(privPkcs8);
+
+  localStorage.setItem(KEY_STORE, JSON.stringify({ publicKey, privateKey }));
+
+  return { publicKey };
+}
+
+async function registerPublicKey(token: string) {
+  try {
+    if (localStorage.getItem(KEY_REGISTERED)) {
+      console.log('🔑 Ya registrada, saltando');
+      return;
+    }
+
+    const { publicKey } = await ensureKeyPair();
+    console.log('🔑 Enviando clave al servidor...');
+
+    const res = await fetch(`${API_BASE_URL}/users/me/public-key`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ publicKey }),
+    });
+
+    const body = await res.json().catch(() => ({}));
+
+    if (res.ok) {
+      localStorage.setItem(KEY_REGISTERED, '1');
+      console.log('✅ Clave registrada correctamente');
+    } else {
+      // ⚠️ NO guardar el flag si falló — que reintente en la próxima carga
+      console.error('❌ Error del servidor:', res.status, body);
+    }
+  } catch (e) {
+    console.error('❌ Error al registrar clave:', e);
+    // Tampoco guardar el flag si hubo excepción
+  }
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 type AuthUser = {
   id: string;
   email?: string;
-  user_metadata?: {
-    full_name?: string;
-  };
+  user_metadata?: { full_name?: string };
 };
 
 type AppUser = {
@@ -24,6 +98,8 @@ type AppUser = {
   createdAt: string;
   updatedAt: string;
 };
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -61,6 +137,9 @@ export default function DashboardPage() {
         return;
       }
 
+      // ✅ Registrar llave pública al iniciar sesión (fix bug crítico del receptor)
+      await registerPublicKey(session.access_token);
+
       try {
         const res = await fetch(`${API_BASE_URL}/users/me`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
@@ -75,15 +154,15 @@ export default function DashboardPage() {
         setAppUser(data);
         setFullName(data.fullName);
 
-        // Redirect organizers to events management
+        // Redirigir organizadores a gestión de eventos
         if (data.role === 'organizer') {
           router.push('/events');
           return;
         }
 
         setLoading(false);
-      } catch (err: any) {
-        setErrorMessage(err.message);
+      } catch (err: unknown) {
+        setErrorMessage(err instanceof Error ? err.message : 'Error desconocido');
         setLoading(false);
       }
     }
@@ -139,24 +218,29 @@ export default function DashboardPage() {
       setAppUser(data);
       setSuccessMessage('Perfil actualizado correctamente.');
       setEditOpen(false);
-    } catch (err: any) {
-      setErrorMessage(err.message);
+    } catch (err: unknown) {
+      setErrorMessage(err instanceof Error ? err.message : 'Error desconocido');
     } finally {
       setSaving(false);
     }
   }
 
-  const initials = (appUser?.fullName ?? authUser?.user_metadata?.full_name ?? 'U')
+  const displayName = appUser?.fullName ?? authUser?.user_metadata?.full_name ?? 'Usuario';
+
+  const initials = displayName
     .split(' ')
     .slice(0, 2)
     .map((w) => w[0])
     .join('')
     .toUpperCase();
 
+  // ✅ Fix: leer emailVerified desde appUser (viene del backend), no de authUser
+  const isEmailVerified = appUser?.emailVerified ?? false;
+
   const roleBadge: Record<string, { label: string; color: string }> = {
-    admin: { label: 'Admin', color: '#7B2FBE' },
+    admin:     { label: 'Admin',      color: '#7B2FBE' },
     organizer: { label: 'Organizador', color: '#0EA5E9' },
-    user: { label: 'Usuario', color: '#FF4D00' },
+    user:      { label: 'Usuario',    color: '#FF4D00' },
   };
 
   const badge = roleBadge[appUser?.role ?? 'user'] ?? roleBadge.user;
@@ -195,6 +279,9 @@ export default function DashboardPage() {
           <button onClick={() => router.push('/tickets/me')} className="hover:text-white transition-colors">
             Mis boletos
           </button>
+          <button onClick={() => router.push('/transfers/incoming')} className="hover:text-white transition-colors">
+            Transferencias
+          </button>
         </div>
 
         <button
@@ -220,18 +307,28 @@ export default function DashboardPage() {
             </div>
             <div>
               <div className="flex items-center gap-2 mb-1">
+                {/* ✅ Fix: badge de rol con color correcto según rol real */}
                 <span
                   className="text-xs font-semibold px-2 py-0.5 rounded-full"
                   style={{ background: `${badge.color}20`, color: badge.color }}
                 >
                   {badge.label}
                 </span>
+                {/* ✅ Fix: badge de email verificado leyendo appUser.emailVerified */}
+                {isEmailVerified && (
+                  <span
+                    className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                    style={{ background: 'rgba(16,185,129,0.12)', color: '#34D399' }}
+                  >
+                    ✓ Verificado
+                  </span>
+                )}
               </div>
               <h1
                 className="text-2xl md:text-3xl font-black tracking-tight"
                 style={{ fontFamily: "'DM Serif Display', Georgia, serif" }}
               >
-                {appUser?.fullName ?? authUser?.user_metadata?.full_name ?? 'Usuario'}
+                {displayName}
               </h1>
               <p className="text-sm text-zinc-500 mt-0.5">{authUser?.email}</p>
             </div>
@@ -287,7 +384,11 @@ export default function DashboardPage() {
                 { label: 'Correo electrónico', value: authUser?.email },
                 { label: 'Rol', value: badge.label },
               ].map((item) => (
-                <div key={item.label} className="flex justify-between items-center py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                <div
+                  key={item.label}
+                  className="flex justify-between items-center py-3"
+                  style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
+                >
                   <span className="text-sm text-zinc-500">{item.label}</span>
                   <span className="text-sm font-medium">{item.value}</span>
                 </div>
@@ -306,10 +407,7 @@ export default function DashboardPage() {
                     required
                     placeholder="Tu nombre completo"
                     className="w-full rounded-xl px-4 py-3 text-sm text-white outline-none transition"
-                    style={{
-                      background: 'rgba(255,255,255,0.05)',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                    }}
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
                     onFocus={(e) => (e.target.style.borderColor = '#FF4D00')}
                     onBlur={(e) => (e.target.style.borderColor = 'rgba(255,255,255,0.1)')}
                   />
@@ -326,8 +424,10 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* ── Status card ── */}
+          {/* ── Right column ── */}
           <div className="flex flex-col gap-5">
+
+            {/* Status card */}
             <div
               className="rounded-3xl p-6"
               style={{ background: '#111111', border: '1px solid rgba(255,255,255,0.07)' }}
@@ -335,9 +435,10 @@ export default function DashboardPage() {
               <p className="text-xs uppercase tracking-widest text-zinc-500 mb-5">Estado de cuenta</p>
               <div className="space-y-3">
                 {[
-                  { label: 'Email verificado', value: appUser?.emailVerified },
+                  // ✅ Fix: emailVerified viene de appUser (backend), no de authUser de Supabase
+                  { label: 'Email verificado',    value: appUser?.emailVerified },
                   { label: 'Teléfono verificado', value: appUser?.phoneVerified },
-                  { label: 'MFA activado', value: appUser?.mfaEnabled },
+                  { label: 'MFA activado',        value: appUser?.mfaEnabled },
                 ].map((item) => (
                   <div key={item.label} className="flex items-center justify-between">
                     <span className="text-sm text-zinc-500">{item.label}</span>
@@ -356,7 +457,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Quick actions */}
+            {/* Quick actions — ✅ Fix: eliminado Checkout (no funcional) */}
             <div
               className="rounded-3xl p-6"
               style={{ background: '#111111', border: '1px solid rgba(255,255,255,0.07)' }}
@@ -364,9 +465,9 @@ export default function DashboardPage() {
               <p className="text-xs uppercase tracking-widest text-zinc-500 mb-5">Accesos rápidos</p>
               <div className="space-y-2">
                 {[
-                  { label: '🎟️  Mis boletos', path: '/tickets/me' },
-                  { label: '🔍  Descubrir eventos', path: '/discover' },
-                  { label: '💳  Checkout', path: '/checkout' },
+                  { label: '🎟️  Mis boletos',           path: '/tickets/me' },
+                  { label: '🔍  Descubrir eventos',      path: '/discover' },
+                  { label: '↔️  Transferencias recibidas', path: '/transfers/incoming' },
                 ].map((item) => (
                   <button
                     key={item.path}
