@@ -199,26 +199,21 @@ function EmptyState({ onCreateClick }: { onCreateClick: () => void }) {
 
 /* ─── VenueMap (mini-preview) ────────────────────────────── */
 function VenueMap({ prices }: { prices: SectionPrice[] }) {
-  const priceOf = (code: string) => {
-    const sp = prices.find(p => p.sectionCode === code);
-    return sp?.price ? `$${Number(sp.price).toLocaleString('es-MX')}` : '—';
-  };
-
   return (
     <div className="venue-map">
       <div className="vm-stage">ESCENARIO</div>
       <div className="vm-sections">
         <div className="vm-section vm-izq">
           <span className="vm-sec-label">Izquierda</span>
-          <span className="vm-sec-price">{priceOf('IZQ')}</span>
+          <span className="vm-sec-price vm-free">GRATIS</span>
         </div>
         <div className="vm-section vm-ctr">
           <span className="vm-sec-label">Central</span>
-          <span className="vm-sec-price">{priceOf('CTR')}</span>
+          <span className="vm-sec-price vm-free">GRATIS</span>
         </div>
         <div className="vm-section vm-der">
           <span className="vm-sec-label">Derecha</span>
-          <span className="vm-sec-price">{priceOf('DER')}</span>
+          <span className="vm-sec-price vm-free">GRATIS</span>
         </div>
       </div>
       <div className="vm-audience">← Público →</div>
@@ -234,39 +229,16 @@ function SectionPriceEditor({
   prices: SectionPrice[];
   onChange: (updated: SectionPrice[]) => void;
 }) {
-  function handlePriceChange(code: string, value: string) {
-    onChange(prices.map(p => p.sectionCode === code ? { ...p, price: value } : p));
-  }
-
   return (
     <div className="section-price-editor">
-      <p className="section-price-hint">
-        Define el precio de cada sección del Auditorio ESCOM. Los compradores verán estos precios al elegir su asiento en el mapa interactivo.
-      </p>
-      <VenueMap prices={prices} />
-      <div className="section-price-inputs">
-        {prices.map(sp => (
-          <div key={sp.sectionCode} className="section-price-row">
-            <div className="section-price-label">
-              <span className="section-dot" style={{ background: sp.colorHex }} />
-              <span>{sp.sectionLabel}</span>
-              <span className="section-code">({sp.sectionCode})</span>
-            </div>
-            <div className="section-price-input-wrap">
-              <span className="price-currency">MXN $</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0.00"
-                value={sp.price}
-                onChange={e => handlePriceChange(sp.sectionCode, e.target.value)}
-                className="price-input"
-              />
-            </div>
-          </div>
-        ))}
+      <div className="escom-free-notice">
+        <span className="escom-free-icon">🎓</span>
+        <div>
+          <strong>Auditorio ESCOM — Recinto académico</strong>
+          <p>Al ser un espacio institucional no se puede cobrar entrada. Todos los boletos de este evento son <strong>gratuitos</strong> automáticamente.</p>
+        </div>
       </div>
+      <VenueMap prices={prices} />
     </div>
   );
 }
@@ -592,10 +564,8 @@ export default function EventsPage() {
 
   // ── Validación compartida ────────────────────────────────
   function validateForm(): string | null {
-    if (useVenueMap) {
-      const missingPrice = sectionPrices.some(sp => !sp.price || Number(sp.price) <= 0);
-      if (missingPrice) return 'Por favor define el precio para todas las secciones del auditorio.';
-    } else {
+    // En modo mapa (Auditorio ESCOM) no hay precios que validar: siempre son gratis.
+    if (!useVenueMap) {
       const invalidType = freeTicketTypes.some(
         tt => !tt.name.trim() || !tt.price || Number(tt.price) <= 0 ||
               !tt.capacity || Number(tt.capacity) < 1
@@ -625,9 +595,10 @@ export default function EventsPage() {
       };
 
       if (useVenueMap) {
+        // Auditorio ESCOM: siempre gratuito, el backend también lo fuerza a 0
         body.sectionPrices = sectionPrices.map(sp => ({
           sectionCode: sp.sectionCode,
-          price: parseFloat(sp.price),
+          price: 0,
           currency: 'MXN',
         }));
       } else {
@@ -681,10 +652,10 @@ export default function EventsPage() {
       };
 
       if (editingEvent.useVenueMap) {
-        // Modo mapa: actualizar precios de sección
+        // Auditorio ESCOM: siempre gratuito, el backend también lo fuerza a 0
         body.sectionPrices = sectionPrices.map(sp => ({
           sectionCode: sp.sectionCode,
-          price: parseFloat(sp.price),
+          price: 0,
           currency: 'MXN',
         }));
       } else {
@@ -1439,6 +1410,35 @@ const CSS = `
     font-size: 0.8rem;
     color: var(--text-muted);
     line-height: 1.5;
+  }
+
+  /* ── Aviso recinto académico ESCOM ── */
+  .escom-free-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    background: rgba(34,197,94,0.08);
+    border: 1px solid rgba(34,197,94,0.22);
+    border-radius: var(--radius);
+    padding: 0.85rem 1rem;
+    font-size: 0.83rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .escom-free-notice strong { color: var(--text); display: block; margin-bottom: 0.2rem; }
+  .escom-free-notice p { margin: 0; }
+  .escom-free-icon { font-size: 1.4rem; flex-shrink: 0; margin-top: 0.1rem; }
+
+  /* ── Badge GRATIS en el mapa ── */
+  .vm-free {
+    font-size: 0.68rem !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.06em;
+    color: var(--green) !important;
+    background: rgba(34,197,94,0.12);
+    border: 1px solid rgba(34,197,94,0.25);
+    border-radius: 9999px;
+    padding: 1px 8px;
   }
 
   /* Mini-mapa del auditorio */
