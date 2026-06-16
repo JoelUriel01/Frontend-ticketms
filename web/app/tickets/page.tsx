@@ -1,6 +1,5 @@
 'use client';
-
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
@@ -137,7 +136,7 @@ function ProcessingStep({ done, label }: { done: boolean; label: string }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function TicketsConfirmationPage() {
+function TicketsConfirmationContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -422,6 +421,15 @@ export default function TicketsConfirmationPage() {
     </>
   );
 }
+
+export default function TicketsConfirmationPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: '#0e0e0f' }} />}>
+      <TicketsConfirmationContent />
+    </Suspense>
+  );
+}
+
 
 // ─── Top Nav ──────────────────────────────────────────────────────────────────
 
