@@ -572,6 +572,10 @@ export default function EventsPage() {
       );
       if (invalidType) return 'Por favor completa nombre, precio y capacidad de todos los tipos de boleto.';
     }
+
+    if (form.startsAt && form.endsAt && new Date(form.endsAt) <= new Date(form.startsAt)) {
+  return 'La fecha de fin debe ser posterior a la fecha de inicio.';
+}
     return null;
   }
 
@@ -876,7 +880,14 @@ export default function EventsPage() {
                     </div>
                     <div className="field">
                       <label htmlFor="endsAt">Fin</label>
-                      <input id="endsAt" type="datetime-local" value={form.endsAt} onChange={e => setForm({ ...form, endsAt: e.target.value })} required />
+<input
+  id="endsAt"
+  type="datetime-local"
+  value={form.endsAt}
+  min={form.startsAt || undefined}
+  onChange={e => setForm({ ...form, endsAt: e.target.value })}
+  required
+/>
                     </div>
                   </div>
                   <div className="form-row two-col">

@@ -1,10 +1,41 @@
 'use client';
 
+/**
+ * UBICACIÓN: app/checkout/[id]/page.tsx
+ *
+ * Flujo con Stripe:
+ *   1. Usuario selecciona asientos/boletos.
+ *   2. Hace clic en "Continuar al pago" → llama a POST /tickets/initiate-payment
+ *      → obtiene { clientSecret, orderId }.
+ *   3. Se muestra el <PaymentElement> de Stripe.
+ *   4. Usuario introduce su tarjeta y hace clic en "Pagar".
+ *   5. stripe.confirmPayment() → Stripe redirige a:
+ *      /tickets?pago=exitoso&order=<orderId>   (+ params de Stripe)
+ *   6. /app/tickets/page.tsx maneja esa URL, hace polling y redirige al boleto.
+ *
+ * Dependencias nuevas:
+ *   npm install @stripe/stripe-js @stripe/react-stripe-js
+ *
+ * Variable de entorno requerida en .env.local:
+ *   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+ */
+
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { loadStripe } from '@stripe/stripe-js';
+import {
+  Elements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from '@stripe/react-stripe-js';
+
 import { createClient } from '@/lib/supabase/client';
 import { API_BASE_URL } from '@/lib/supabase/api';
+
+// Inicializar Stripe UNA sola vez fuera del componente
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,8 +68,8 @@ interface EventDetail {
 }
 
 interface SeatData {
-  id: string;           // e.g. "CTR-B-05"
-  sectionCode: string;  // "CTR" | "IZQ" | "DER"
+  id: string;
+  sectionCode: string;
   sectionLabel: string;
   colorHex: string;
   row: string;
@@ -73,20 +104,16 @@ function initials(t: string) {
 }
 
 // ─── Seat Map Component ───────────────────────────────────────────────────────
-// Renderiza el mapa SVG del auditorio ESCOM usando los datos reales del backend.
-// Los asientos sold/held vienen del servidor; el usuario puede seleccionar
-// los available. Emite `onSelectionChange` con los ids seleccionados.
+// (Componente igual que antes — se mantiene sin cambios)
 
 const NS = 'http://www.w3.org/2000/svg';
 const R = 9;
 const GAP = 22;
-const STARY = 126;
 const CFG = {
   IZQ: { cx: 42,  max: 6  },
   CTR: { cx: 260, max: 11 },
   DER: { cx: 628, max: 6  },
 } as const;
-const ROWS = ['K','J','I','H','G','F','E','D','C','B','A'];
 
 type SeatStatus = 'available' | 'sold' | 'held' | 'selected';
 
@@ -103,52 +130,41 @@ function SeatMap({
   onSelectionChange: (selected: RenderSeat[]) => void;
   accentColor: string;
 }) {
-  const svgRef   = useRef<SVGSVGElement>(null);
-  const areaRef  = useRef<HTMLDivElement>(null);
-  const tipRef   = useRef<HTMLDivElement>(null);
-
-  // Local mutable state for seats (avoids full re-render on every click)
-  const seatsRef   = useRef<RenderSeat[]>([]);
+  const svgRef  = useRef<SVGSVGElement>(null);
+  const areaRef = useRef<HTMLDivElement>(null);
+  const seatsRef    = useRef<RenderSeat[]>([]);
   const selectedRef = useRef<Set<string>>(new Set());
-  const [renderTick, setRenderTick] = useState(0); // force sidebar re-render
-
-  // Zoom / pan state
+  const [renderTick, setRenderTick] = useState(0);
   const zoom = useRef(1);
   const pan  = useRef({ x: 0, y: 0 });
   const drag = useRef(false);
   const dragStart = useRef({ mx: 0, my: 0, px: 0, py: 0 });
   const pinchDist = useRef(0);
-
-  // Tooltip state
   const [tooltip, setTooltip] = useState<{
     visible: boolean; label: string; sub: string; price: string; x: number; y: number;
   }>({ visible: false, label: '', sub: '', price: '', x: 0, y: 0 });
-
-  // Capacity
   const [capacity, setCapacity] = useState({ CTR: 0, IZQ: 0, DER: 0 });
+  const [limitBanner, setLimitBanner] = useState(false);
 
-// Build RenderSeats from API data on mount/update
-useEffect(() => {
-  if (rawSeats.length === 0) return;
-  seatsRef.current = rawSeats.map((s) => ({
-    ...s,
-    renderStatus: s.status === 'available' ? 'available' : s.status as SeatStatus,
-  }));
-  selectedRef.current.clear();
-  recalcCapacity();
-  setRenderTick((t) => t + 1); // dispara el segundo useEffect
-// eslint-disable-next-line react-hooks/exhaustive-deps
-}, [rawSeats]);
 
-// Dibujar cuando el SVG ya está montado Y los datos están listos
-useEffect(() => {
-  if (seatsRef.current.length === 0) return;
-  // Pequeño defer para garantizar que el SVG está en el DOM
-  const id = requestAnimationFrame(() => redrawAll());
-  return () => cancelAnimationFrame(id);
-// eslint-disable-next-line react-hooks/exhaustive-deps
-}, [renderTick]);
+  useEffect(() => {
+    if (rawSeats.length === 0) return;
+    seatsRef.current = rawSeats.map((s) => ({
+      ...s,
+      renderStatus: s.status === 'available' ? 'available' : s.status as SeatStatus,
+    }));
+    selectedRef.current.clear();
+    recalcCapacity();
+    setRenderTick((t) => t + 1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawSeats]);
 
+  useEffect(() => {
+    if (seatsRef.current.length === 0) return;
+    const id = requestAnimationFrame(() => redrawAll());
+    return () => cancelAnimationFrame(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderTick]);
 
   function recalcCapacity() {
     const totals = { CTR: 0, IZQ: 0, DER: 0 };
@@ -169,18 +185,15 @@ useEffect(() => {
     if (s.renderStatus === 'selected') return 'var(--gold)';
     if (s.renderStatus === 'held')     return 'var(--warn)';
     if (s.renderStatus === 'sold')     return 'var(--faint)';
-    // available: use section color
     return s.colorHex || 'var(--accent)';
   }
   function getOpacity(s: RenderSeat) { return s.renderStatus === 'sold' ? 0.38 : 0.92; }
 
-function redrawAll() {
-  // Usar querySelector porque getElementById en SVGElement no es confiable
-  const g = svgRef.current?.querySelector('#seatsG') as SVGGElement | null;
-  if (!g) return;
-  g.innerHTML = '';
-  const done = new Set<string>();
-
+  function redrawAll() {
+    const g = svgRef.current?.querySelector('#seatsG') as SVGGElement | null;
+    if (!g) return;
+    g.innerHTML = '';
+    const done = new Set<string>();
     seatsRef.current.forEach((s) => {
       const rk = s.sectionCode + s.row;
       if (!done.has(rk)) {
@@ -234,6 +247,11 @@ function redrawAll() {
       s.renderStatus = 'available';
       selectedRef.current.delete(id);
     } else {
+ if (selectedRef.current.size >= 5) {
+    setLimitBanner(true);
+    setTimeout(() => setLimitBanner(false), 3500);
+    return;
+  }
       s.renderStatus = 'selected';
       selectedRef.current.add(id);
     }
@@ -243,42 +261,37 @@ function redrawAll() {
     onSelectionChange(seatsRef.current.filter((x) => selectedRef.current.has(x.id)));
   }, [onSelectionChange]);
 
-  // Attach SVG events
   useEffect(() => {
     const g = svgRef.current?.getElementById('seatsG') as SVGGElement | null;
     if (!g) return;
-
-const onClick = (e: globalThis.Event) => {
-  const id = ((e as unknown as MouseEvent).target as SVGElement).dataset.id;
-  if (id) handleSeatClick(id);
-};
-const onOver = (e: globalThis.Event) => {
-  const me = e as unknown as MouseEvent;
-  const target = me.target as SVGElement;
-  const id = target.dataset.id;
-  if (!id) return;
-  const s = seatsRef.current.find((x) => x.id === id);
-  if (!s) return;
-  const STATUS_TXT: Record<SeatStatus, string> = {
-    available: 'Disponible', selected: 'Seleccionado',
-    held: 'En proceso de compra', sold: 'Vendido',
-  };
-  setTooltip({
-    visible: true,
-    label: `${s.sectionLabel} · Fila ${s.row} · Asiento ${s.number}`,
-    sub: STATUS_TXT[s.renderStatus],
-    price: s.price !== null && s.renderStatus !== 'sold'
-      ? `$${s.price.toLocaleString('es-MX')} MXN` : '',
-    x: me.clientX, y: me.clientY,
-  });
-};
-
-const onMove = (e: globalThis.Event) => {
-  const me = e as unknown as MouseEvent;
-  setTooltip((t) => t.visible ? { ...t, x: me.clientX, y: me.clientY } : t);
-};
-    const onOut  = () => setTooltip((t) => ({ ...t, visible: false }));
-
+    const onClick  = (e: globalThis.Event) => {
+      const id = ((e as unknown as MouseEvent).target as SVGElement).dataset.id;
+      if (id) handleSeatClick(id);
+    };
+    const onOver = (e: globalThis.Event) => {
+      const me = e as unknown as MouseEvent;
+      const id = (me.target as SVGElement).dataset.id;
+      if (!id) return;
+      const s = seatsRef.current.find((x) => x.id === id);
+      if (!s) return;
+      const STATUS_TXT: Record<SeatStatus, string> = {
+        available: 'Disponible', selected: 'Seleccionado',
+        held: 'En proceso de compra', sold: 'Vendido',
+      };
+      setTooltip({
+        visible: true,
+        label: `${s.sectionLabel} · Fila ${s.row} · Asiento ${s.number}`,
+        sub: STATUS_TXT[s.renderStatus],
+        price: s.price !== null && s.renderStatus !== 'sold'
+          ? `$${s.price.toLocaleString('es-MX')} MXN` : '',
+        x: me.clientX, y: me.clientY,
+      });
+    };
+    const onMove = (e: globalThis.Event) => {
+      const me = e as unknown as MouseEvent;
+      setTooltip((t) => t.visible ? { ...t, x: me.clientX, y: me.clientY } : t);
+    };
+    const onOut = () => setTooltip((t) => ({ ...t, visible: false }));
     g.addEventListener('click',     onClick);
     g.addEventListener('mouseover', onOver);
     g.addEventListener('mousemove', onMove);
@@ -291,11 +304,9 @@ const onMove = (e: globalThis.Event) => {
     };
   }, [handleSeatClick, renderTick]);
 
-  // Pan / zoom events on map area
   useEffect(() => {
     const area = areaRef.current;
     if (!area) return;
-
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
       zoom.current = Math.min(Math.max(zoom.current * (e.deltaY > 0 ? 0.9 : 1.1), 0.5), 4);
@@ -314,27 +325,17 @@ const onMove = (e: globalThis.Event) => {
       applyTransform();
     };
     const onMU = () => { drag.current = false; area.style.cursor = 'grab'; };
-
     const onTS = (e: TouchEvent) => {
       if (e.touches.length === 2) {
-        pinchDist.current = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY,
-        );
+        pinchDist.current = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
       } else if (e.touches.length === 1) {
         drag.current = true;
-        dragStart.current = {
-          mx: e.touches[0].clientX, my: e.touches[0].clientY,
-          px: pan.current.x, py: pan.current.y,
-        };
+        dragStart.current = { mx: e.touches[0].clientX, my: e.touches[0].clientY, px: pan.current.x, py: pan.current.y };
       }
     };
     const onTM = (e: TouchEvent) => {
       if (e.touches.length === 2) {
-        const d = Math.hypot(
-          e.touches[0].clientX - e.touches[1].clientX,
-          e.touches[0].clientY - e.touches[1].clientY,
-        );
+        const d = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
         zoom.current = Math.min(Math.max(zoom.current * (d / pinchDist.current), 0.5), 4);
         pinchDist.current = d;
         applyTransform();
@@ -345,7 +346,6 @@ const onMove = (e: globalThis.Event) => {
       }
     };
     const onTE = () => { drag.current = false; };
-
     area.addEventListener('wheel',      onWheel, { passive: false });
     area.addEventListener('mousedown',  onMD);
     window.addEventListener('mousemove', onMM);
@@ -365,15 +365,11 @@ const onMove = (e: globalThis.Event) => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Compute zone prices from rawSeats (one per section)
   const zonePrices = (() => {
     const map: Record<string, { label: string; color: string; price: number | null; currency: string }> = {};
     rawSeats.forEach((s) => {
       if (!map[s.sectionCode]) {
-        map[s.sectionCode] = {
-          label: s.sectionLabel, color: s.colorHex,
-          price: s.price, currency: s.currency,
-        };
+        map[s.sectionCode] = { label: s.sectionLabel, color: s.colorHex, price: s.price, currency: s.currency };
       }
     });
     return Object.values(map);
@@ -384,7 +380,6 @@ const onMove = (e: globalThis.Event) => {
 
   return (
     <div className="seatmap-root">
-      {/* Zone prices legend */}
       <div className="sm-legend">
         {zonePrices.map((z) => (
           <div key={z.label} className="sm-zone">
@@ -409,38 +404,24 @@ const onMove = (e: globalThis.Event) => {
         </div>
       </div>
 
-      {/* Map viewport */}
       <div className="sm-viewport" ref={areaRef} style={{ cursor: 'grab' }}>
-        {/* Capacity bars */}
         <div className="sm-capbar">
           {(['CTR','IZQ','DER'] as const).map((sec) => (
             <div key={sec} className="sm-cap-item">
-              <span className="sm-cap-label">{ sec === 'CTR' ? 'Central' : sec === 'IZQ' ? 'Izq.' : 'Der.' }</span>
+              <span className="sm-cap-label">{sec === 'CTR' ? 'Central' : sec === 'IZQ' ? 'Izq.' : 'Der.'}</span>
               <div className="sm-cap-track">
-                <div
-                  className={`sm-cap-fill${capacity[sec] >= 90 ? ' full' : capacity[sec] >= 70 ? ' warn' : ''}`}
-                  style={{ width: capacity[sec] + '%' }}
-                />
+                <div className={`sm-cap-fill${capacity[sec] >= 90 ? ' full' : capacity[sec] >= 70 ? ' warn' : ''}`}
+                  style={{ width: capacity[sec] + '%' }} />
               </div>
               <span className="sm-cap-pct">{capacity[sec]}%</span>
             </div>
           ))}
         </div>
-
-        {/* Pan hint */}
         <div className="sm-hint">Scroll para zoom · Arrastra para navegar</div>
-
-        {/* SVG */}
-        <svg
-          ref={svgRef}
-          id="svgMapReact"
-          xmlns="http://www.w3.org/2000/svg"
-          width="100%"
-          height="100%"
-          viewBox="0 0 860 680"
+        <svg ref={svgRef} id="svgMapReact" xmlns="http://www.w3.org/2000/svg"
+          width="100%" height="100%" viewBox="0 0 860 680"
           preserveAspectRatio="xMidYMid meet"
-          style={{ touchAction: 'none', userSelect: 'none' }}
-        >
+          style={{ touchAction: 'none', userSelect: 'none' }}>
           <defs>
             <linearGradient id="sg" x1="0" y1="0" x2="1" y2="0">
               <stop offset="0%"   stopColor="var(--accent)" stopOpacity=".07" />
@@ -449,29 +430,21 @@ const onMove = (e: globalThis.Event) => {
             </linearGradient>
             <filter id="glow">
               <feGaussianBlur stdDeviation="2.5" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
+              <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
             </filter>
           </defs>
-          {/* Stage */}
           <rect x="260" y="16" width="340" height="52" rx="10" fill="url(#sg)" />
           <rect x="260" y="16" width="340" height="52" rx="10" stroke="var(--accent)" strokeWidth="1.5" fill="none" />
           <text x="430" y="48" textAnchor="middle" dominantBaseline="central"
-                fontFamily="Satoshi,sans-serif" fontSize="12" fontWeight="700"
-                fill="var(--accent)" letterSpacing=".12em">ESCENARIO</text>
+            fontFamily="Satoshi,sans-serif" fontSize="12" fontWeight="700"
+            fill="var(--accent)" letterSpacing=".12em">ESCENARIO</text>
           <path d="M260 68 Q430 106 600 68" stroke="var(--border)" strokeWidth="1"
-                fill="none" strokeDasharray="5 4" opacity=".6" />
-          {/* Section labels */}
+            fill="none" strokeDasharray="5 4" opacity=".6" />
           <text x="115" y="106" className="slbl">Sección Izq.</text>
           <text x="430" y="106" className="slbl">Sección Central</text>
           <text x="745" y="106" className="slbl">Sección Der.</text>
-          {/* Seats rendered imperatively via DOM */}
           <g id="seatsG" />
         </svg>
-
-        {/* Zoom controls */}
         <div className="sm-zoom">
           <button className="sm-zoom-btn" onClick={() => { zoom.current = Math.min(zoom.current * 1.3, 4); applyTransform(); }}>+</button>
           <button className="sm-zoom-btn" onClick={() => { zoom.current = Math.max(zoom.current / 1.3, 0.5); applyTransform(); }}>−</button>
@@ -479,7 +452,6 @@ const onMove = (e: globalThis.Event) => {
         </div>
       </div>
 
-      {/* Tooltip */}
       {tooltip.visible && (
         <div className="sm-tip" style={{ left: tooltip.x + 14, top: tooltip.y - 8 }}>
           <div className="sm-tip-id">{tooltip.label}</div>
@@ -488,7 +460,6 @@ const onMove = (e: globalThis.Event) => {
         </div>
       )}
 
-      {/* Selected seats summary */}
       {selectedSeats.length > 0 && (
         <div className="sm-selection">
           <div className="sm-sel-header">
@@ -506,16 +477,128 @@ const onMove = (e: globalThis.Event) => {
                   <div className="sm-sel-id">{s.id}</div>
                   <div className="sm-sel-sub">{s.sectionLabel} · ${(s.price ?? 0).toLocaleString('es-MX')} MXN</div>
                 </div>
-                <button
-                  className="sm-sel-rm"
-                  onClick={() => handleSeatClick(s.id)}
-                  aria-label="Quitar asiento"
-                >×</button>
+                <button className="sm-sel-rm" onClick={() => handleSeatClick(s.id)} aria-label="Quitar asiento">×</button>
               </div>
             ))}
           </div>
         </div>
       )}
+
+
+      {limitBanner && (
+  <div className="sm-limit-banner" role="alert">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+    </svg>
+    Máximo 5 asientos por compra
+  </div>
+)}
+
+    </div>
+  );
+}
+
+// ─── Stripe Payment Form ──────────────────────────────────────────────────────
+// Este componente DEBE vivir dentro de <Elements> para usar useStripe/useElements
+
+function PaymentForm({
+  orderId,
+  total,
+  currency,
+  color,
+  onBack,
+}: {
+  orderId: string;
+  total: number;
+  currency: string;
+  color: string;
+  onBack: () => void;
+}) {
+  const stripe   = useStripe();
+  const elements = useElements();
+  const [paying, setPaying] = useState(false);
+  const [error,  setError]  = useState('');
+
+  async function handlePay() {
+    if (!stripe || !elements) return;
+    setPaying(true);
+    setError('');
+
+    // Primero validar que el formulario de Stripe sea correcto
+    const { error: submitErr } = await elements.submit();
+    if (submitErr) {
+      setError(submitErr.message ?? 'Error al validar el formulario');
+      setPaying(false);
+      return;
+    }
+
+    // Confirmar el pago — Stripe redirige a return_url si todo sale bien
+    const { error: confirmErr } = await stripe.confirmPayment({
+      elements,
+      confirmParams: {
+        return_url: `${window.location.origin}/tickets?pago=exitoso&order=${orderId}`,
+      },
+    });
+
+    // Si llegamos aquí, hubo un error (el redirect no ocurrió)
+    if (confirmErr) {
+      setError(confirmErr.message ?? 'El pago no pudo completarse. Intenta de nuevo.');
+      setPaying(false);
+    }
+  }
+
+  return (
+    <div className="payment-form">
+      <div className="payment-form-header">
+        <button className="back-btn-sm" onClick={onBack} disabled={paying}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          Volver
+        </button>
+        <h2 className="payment-title">Información de pago</h2>
+      </div>
+
+      {/* Stripe PaymentElement — renderiza el formulario de tarjeta */}
+      <div className="stripe-element-wrapper">
+        <PaymentElement
+          options={{
+            layout: 'tabs',
+            // Mostrar solo los métodos relevantes (card es el principal)
+          }}
+        />
+      </div>
+
+      {error && (
+        <div className="pay-error" role="alert">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          {error}
+        </div>
+      )}
+
+      <button
+        className="pay-btn"
+        style={{ background: color }}
+        onClick={handlePay}
+        disabled={!stripe || !elements || paying}
+        aria-busy={paying}
+      >
+        {paying ? (
+          <><div className="btn-spinner" /><span>Procesando…</span></>
+        ) : (
+          <>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+              <line x1="1" y1="10" x2="23" y2="10" />
+            </svg>
+            <span>Pagar ${total.toLocaleString('es-MX')} {currency}</span>
+          </>
+        )}
+      </button>
+
+      <p className="pay-note">Pago procesado de forma segura por Stripe. Sin reembolsos.</p>
     </div>
   );
 }
@@ -527,18 +610,25 @@ export default function CheckoutPage() {
   const router = useRouter();
   const id = params?.id;
 
-  const [event, setEvent]             = useState<EventDetail | null>(null);
-  const [seats, setSeats]             = useState<SeatData[]>([]);
+  const [event,        setEvent]        = useState<EventDetail | null>(null);
+  const [seats,        setSeats]        = useState<SeatData[]>([]);
   const [selectedSeats, setSelectedSeats] = useState<RenderSeat[]>([]);
-  const [loading, setLoading]         = useState(true);
+  const [loading,      setLoading]      = useState(true);
   const [seatsLoading, setSeatsLoading] = useState(false);
 
-  // Classic mode state
-  const [qty, setQty]                 = useState(1);
+  // Classic mode
+  const [qty,            setQty]            = useState(1);
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
 
-  const [buying, setBuying]           = useState(false);
-  const [error, setError]             = useState('');
+  // Stripe flow state
+  // 'select'  → usuario eligiendo asientos/boletos
+  // 'payment' → mostrando el PaymentElement de Stripe
+  const [paymentStep, setPaymentStep] = useState<'select' | 'payment'>('select');
+  const [clientSecret, setClientSecret] = useState<string>('');
+  const [orderId,      setOrderId]      = useState<string>('');
+
+  const [initiating, setInitiating] = useState(false);
+  const [error,      setError]      = useState('');
 
   const color = event ? colorFor(event.title) : '#00c2b3';
   const abbr  = event ? initials(event.title) : '';
@@ -566,35 +656,32 @@ export default function CheckoutPage() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  // Fetch seat map when event uses venue map
+  // Fetch seat map
   useEffect(() => {
     if (!event?.useVenueMap || !id) return;
     setSeatsLoading(true);
     fetch(`${API_BASE_URL}/events/${id}/seat-map`)
       .then((r) => (r.ok ? r.json() : []))
-      .then((data: SeatData[]) => {
-       console.log('seat-map response:', data); 
-  setSeats(data);
-})
+      .then((data: SeatData[]) => setSeats(data))
       .catch(() => setError('No se pudo cargar el mapa de asientos.'))
       .finally(() => setSeatsLoading(false));
   }, [event, id]);
 
-  // ── Classic mode buy ──
-  const ticketTypes       = event?.ticketTypes ?? [];
+  // ── Computed values ──
+  const ticketTypes        = event?.ticketTypes ?? [];
   const selectedTicketType = ticketTypes.find((t) => t.id === selectedTypeId) ?? ticketTypes[0] ?? null;
-  const ticketPrice       = selectedTicketType ? Number(selectedTicketType.price) : 0;
-  const ticketName        = selectedTicketType?.name ?? 'Entrada general';
-  const hasTicketTypes    = ticketTypes.length > 0;
-  const classicTotal      = qty * ticketPrice;
+  const ticketPrice        = selectedTicketType ? Number(selectedTicketType.price) : 0;
+  const ticketName         = selectedTicketType?.name ?? 'Entrada general';
+  const hasTicketTypes     = ticketTypes.length > 0;
+  const classicTotal       = qty * ticketPrice;
+  const mapTotal           = selectedSeats.reduce((a, s) => a + (s.price ?? 0), 0);
+  const canProceed         = event?.useVenueMap ? selectedSeats.length > 0 : hasTicketTypes;
+  const displayTotal       = event?.useVenueMap ? mapTotal : classicTotal;
 
-  // ── Seat map buy ──
-  const mapTotal = selectedSeats.reduce((a, s) => a + (s.price ?? 0), 0);
-  const canBuyMap = selectedSeats.length > 0;
-
-  async function handleBuy() {
+  // ── Step 1: initiate payment (call backend, get clientSecret) ──
+  async function handleInitiatePayment() {
     if (!event) return;
-    setBuying(true);
+    setInitiating(true);
     setError('');
 
     try {
@@ -603,64 +690,41 @@ export default function CheckoutPage() {
       if (sessErr) throw new Error('No se pudo obtener la sesión');
       if (!session?.access_token) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
 
-      if (event.useVenueMap) {
-        // ── Seat-map mode: POST one ticket per seat ──
-        if (selectedSeats.length === 0) {
-          setError('Selecciona al menos un asiento.');
-          return;
-        }
-        // POST with seatIds array (your tickets endpoint must support this)
-        const res = await fetch(`${API_BASE_URL}/tickets`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            eventId: event.id,
-            seatIds: selectedSeats.map((s) => s.id),
-          }),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.message || `Error ${res.status}`);
-        }
-        const order = await res.json();
-        router.push(`/tickets/${order.id ?? order[0]?.id}?new=1`);
-      } else {
-        // ── Classic ticket-type mode ──
-        if (!selectedTicketType) {
-          setError('No hay tipo de boleto disponible para este evento.');
-          return;
-        }
-        const res = await fetch(`${API_BASE_URL}/tickets`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({
-            eventId: event.id,
-            ticketTypeId: selectedTicketType.id,
-            quantity: qty,
-          }),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.message || `Error ${res.status}`);
-        }
-        const ticket = await res.json();
-        router.push(`/tickets/${ticket.id}?new=1`);
+      const payload = event.useVenueMap
+        ? { eventId: event.id, seatIds: selectedSeats.map((s) => s.id) }
+        : { eventId: event.id, ticketTypeId: selectedTicketType?.id, quantity: qty };
+
+      const res = await fetch(`${API_BASE_URL}/tickets/initiate-payment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `Error ${res.status}`);
       }
+
+      const data = await res.json();
+
+      if (data.free) {
+  router.push(`/tickets?pago=exitoso&order=${data.orderId}&redirect_status=succeeded`);
+  return;
+}
+
+      // data = { clientSecret, orderId, amount, currency }
+      setClientSecret(data.clientSecret);
+      setOrderId(data.orderId);
+      setPaymentStep('payment');
     } catch (e: any) {
-      setError(e.message ?? 'Ocurrió un error al procesar la compra.');
+      setError(e.message ?? 'No se pudo iniciar el pago. Intenta de nuevo.');
     } finally {
-      setBuying(false);
+      setInitiating(false);
     }
   }
-
-  const displayTotal = event?.useVenueMap ? mapTotal : classicTotal;
-  const canBuy = event?.useVenueMap ? canBuyMap : hasTicketTypes;
 
   return (
     <>
@@ -689,7 +753,7 @@ export default function CheckoutPage() {
             </div>
           ) : (
             <>
-              {/* Event summary card */}
+              {/* ── Event summary ── */}
               <section className="event-summary" aria-label="Resumen del evento">
                 <div className="summary-banner" style={{ background: `linear-gradient(135deg, ${color}20 0%, #0e0e0f 100%)` }}>
                   <div className="summary-avatar" style={{ background: color }}>{abbr}</div>
@@ -714,152 +778,203 @@ export default function CheckoutPage() {
                 </div>
               </section>
 
-              {/* ── Seat-map mode ── */}
-              {event.useVenueMap ? (
-                <>
-                  <section className="map-section" aria-label="Mapa de asientos">
-                    <h2 className="section-label">Selecciona tus asientos</h2>
-                    {seatsLoading ? (
-                      <div className="loading-state"><div className="spinner" /></div>
-                    ) : (
-                      <SeatMap
-                        seats={seats}
-                        onSelectionChange={setSelectedSeats}
-                        accentColor={color}
-                      />
-                    )}
-                  </section>
-
-                  {/* Order summary (seat map) */}
+              {/* ── PASO 2: Formulario de pago Stripe ── */}
+              {paymentStep === 'payment' && clientSecret ? (
+                <Elements
+                  stripe={stripePromise}
+                  options={{
+                    clientSecret,
+                    appearance: {
+                      theme: 'night',
+                      variables: {
+                        colorPrimary: color,
+                        colorBackground: '#1a1a1c',
+                        colorText: '#e8e8e9',
+                        colorTextSecondary: '#8a8a8e',
+                        borderRadius: '10px',
+                        fontFamily: 'Satoshi, Inter, system-ui, sans-serif',
+                      },
+                    },
+                  }}
+                >
+                  {/* Resumen (read-only) */}
                   <section className="order-summary" aria-label="Resumen de orden">
                     <h2 className="section-label">Resumen de orden</h2>
                     <div className="order-lines">
-                      {selectedSeats.length === 0 ? (
-                        <p className="qty-hint">Selecciona asientos en el mapa para continuar.</p>
+                      {event.useVenueMap ? (
+                        selectedSeats.map((s) => (
+                          <div key={s.id} className="order-line">
+                            <span>{s.id} — {s.sectionLabel}</span>
+                            <span>${(s.price ?? 0).toLocaleString('es-MX')} MXN</span>
+                          </div>
+                        ))
                       ) : (
-                        <>
-                          {selectedSeats.map((s) => (
-                            <div key={s.id} className="order-line">
-                              <span>{s.id} — {s.sectionLabel}</span>
-                              <span>${(s.price ?? 0).toLocaleString('es-MX')} MXN</span>
-                            </div>
-                          ))}
-                          <div className="order-line muted">
-                            <span>Cargos por servicio</span><span>Incluidos</span>
-                          </div>
-                          <div className="order-divider" />
-                          <div className="order-line total">
-                            <span>Total</span>
-                            <span style={{ color }}>${mapTotal.toLocaleString('es-MX')} MXN</span>
-                          </div>
-                        </>
+                        <div className="order-line">
+                          <span>{ticketName} × {qty}</span>
+                          <span>${classicTotal.toLocaleString('es-MX')} MXN</span>
+                        </div>
                       )}
+                      <div className="order-line muted"><span>Cargos por servicio</span><span>Incluidos</span></div>
+                      <div className="order-divider" />
+                      <div className="order-line total">
+                        <span>Total</span>
+                        <span style={{ color }}>${displayTotal.toLocaleString('es-MX')} MXN</span>
+                      </div>
                     </div>
                   </section>
-                </>
-              ) : (
-                /* ── Classic ticket-type mode ── */
-                <>
-                  {!hasTicketTypes ? (
-                    <section className="ticket-selector">
-                      <p className="qty-hint">Este evento todavía no tiene tipos de boleto configurados.</p>
-                    </section>
-                  ) : (
-                    <>
-                      <section className="ticket-selector" aria-label="Seleccionar boletos">
-                        <h2 className="section-label">Selecciona tu boleto</h2>
-                        <div className="ticket-type-list">
-                          {ticketTypes.map((tt) => {
-                            const isSelected = tt.id === (selectedTypeId ?? ticketTypes[0]?.id);
-                            return (
-                              <button
-                                key={tt.id}
-                                className={`ticket-type-card${isSelected ? ' selected' : ''}`}
-                                style={isSelected ? { borderColor: color, boxShadow: `0 0 0 1px ${color}40` } : {}}
-                                onClick={() => setSelectedTypeId(tt.id)}
-                                aria-pressed={isSelected}
-                              >
-                                <div className="ttc-left">
-                                  <span className="ttc-check" style={isSelected ? { background: color } : {}}>
-                                    {isSelected && (
-                                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#0e0e0f" strokeWidth="3">
-                                        <polyline points="20 6 9 17 4 12" />
-                                      </svg>
-                                    )}
-                                  </span>
-                                  <span className="ttc-name">{tt.name}</span>
-                                </div>
-                                <span className="ttc-price" style={isSelected ? { color } : {}}>
-                                  ${Number(tt.price).toLocaleString('es-MX')} {tt.currency}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <div className="ticket-row" style={{ marginTop: '1rem' }}>
-                          <div className="ticket-info">
-                            <span className="ticket-name">{ticketName}</span>
-                            <span className="ticket-price">${ticketPrice.toLocaleString('es-MX')} MXN por boleto</span>
-                          </div>
-                          <div className="qty-control" role="group" aria-label="Cantidad de boletos">
-                            <button className="qty-btn" onClick={() => setQty((q) => Math.max(1, q - 1))} disabled={qty <= 1} aria-label="Quitar boleto">−</button>
-                            <span className="qty-value" aria-live="polite">{qty}</span>
-                            <button className="qty-btn" onClick={() => setQty((q) => Math.min(10, q + 1))} disabled={qty >= 10} aria-label="Agregar boleto">+</button>
-                          </div>
-                        </div>
-                        <p className="qty-hint">Máximo 10 boletos por compra</p>
-                      </section>
 
+                  {/* Formulario Stripe */}
+                  <section className="payment-section" aria-label="Pago">
+                    <PaymentForm
+                      orderId={orderId}
+                      total={displayTotal}
+                      currency="MXN"
+                      color={color}
+                      onBack={() => { setPaymentStep('select'); setError(''); }}
+                    />
+                  </section>
+                </Elements>
+              ) : (
+                /* ── PASO 1: Selección de asientos/boletos ── */
+                <>
+                  {event.useVenueMap ? (
+                    <>
+                      <section className="map-section" aria-label="Mapa de asientos">
+                        <h2 className="section-label">Selecciona tus asientos</h2>
+                        {seatsLoading ? (
+                          <div className="loading-state"><div className="spinner" /></div>
+                        ) : (
+                          <SeatMap seats={seats} onSelectionChange={setSelectedSeats} accentColor={color} />
+                        )}
+                      </section>
                       <section className="order-summary" aria-label="Resumen de orden">
                         <h2 className="section-label">Resumen de orden</h2>
                         <div className="order-lines">
-                          <div className="order-line">
-                            <span>{ticketName} × {qty}</span>
-                            <span>${(qty * ticketPrice).toLocaleString('es-MX')} MXN</span>
-                          </div>
-                          <div className="order-line muted"><span>Cargos por servicio</span><span>Incluidos</span></div>
-                          <div className="order-divider" />
-                          <div className="order-line total">
-                            <span>Total</span>
-                            <span style={{ color }}>${classicTotal.toLocaleString('es-MX')} MXN</span>
-                          </div>
+                          {selectedSeats.length === 0 ? (
+                            <p className="qty-hint">Selecciona asientos en el mapa para continuar.</p>
+                          ) : (
+                            <>
+                              {selectedSeats.map((s) => (
+                                <div key={s.id} className="order-line">
+                                  <span>{s.id} — {s.sectionLabel}</span>
+                                  <span>${(s.price ?? 0).toLocaleString('es-MX')} MXN</span>
+                                </div>
+                              ))}
+                              <div className="order-line muted"><span>Cargos por servicio</span><span>Incluidos</span></div>
+                              <div className="order-divider" />
+                              <div className="order-line total">
+                                <span>Total</span>
+                                <span style={{ color }}>${mapTotal.toLocaleString('es-MX')} MXN</span>
+                              </div>
+                            </>
+                          )}
                         </div>
                       </section>
                     </>
+                  ) : (
+                    <>
+                      {!hasTicketTypes ? (
+                        <section className="ticket-selector">
+                          <p className="qty-hint">Este evento todavía no tiene tipos de boleto configurados.</p>
+                        </section>
+                      ) : (
+                        <>
+                          <section className="ticket-selector" aria-label="Seleccionar boletos">
+                            <h2 className="section-label">Selecciona tu boleto</h2>
+                            <div className="ticket-type-list">
+                              {ticketTypes.map((tt) => {
+                                const isSelected = tt.id === (selectedTypeId ?? ticketTypes[0]?.id);
+                                return (
+                                  <button
+                                    key={tt.id}
+                                    className={`ticket-type-card${isSelected ? ' selected' : ''}`}
+                                    style={isSelected ? { borderColor: color, boxShadow: `0 0 0 1px ${color}40` } : {}}
+                                    onClick={() => setSelectedTypeId(tt.id)}
+                                    aria-pressed={isSelected}
+                                  >
+                                    <div className="ttc-left">
+                                      <span className="ttc-check" style={isSelected ? { background: color } : {}}>
+                                        {isSelected && (
+                                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#0e0e0f" strokeWidth="3">
+                                            <polyline points="20 6 9 17 4 12" />
+                                          </svg>
+                                        )}
+                                      </span>
+                                      <span className="ttc-name">{tt.name}</span>
+                                    </div>
+                                    <span className="ttc-price" style={isSelected ? { color } : {}}>
+                                      ${Number(tt.price).toLocaleString('es-MX')} {tt.currency}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <div className="ticket-row" style={{ marginTop: '1rem' }}>
+                              <div className="ticket-info">
+                                <span className="ticket-name">{ticketName}</span>
+                                <span className="ticket-price">${ticketPrice.toLocaleString('es-MX')} MXN por boleto</span>
+                              </div>
+                              <div className="qty-control" role="group" aria-label="Cantidad de boletos">
+                                <button className="qty-btn" onClick={() => setQty((q) => Math.max(1, q - 1))} disabled={qty <= 1}>−</button>
+                                <span className="qty-value" aria-live="polite">{qty}</span>
+                                <button className="qty-btn" onClick={() => setQty((q) => Math.min(5, q + 1))} disabled={qty >= 5}>+</button>
+                              </div>
+                            </div>
+                            <p className="qty-hint">Máximo 5 boletos por compra</p>
+                          </section>
+                          <section className="order-summary" aria-label="Resumen de orden">
+                            <h2 className="section-label">Resumen de orden</h2>
+                            <div className="order-lines">
+                              <div className="order-line">
+                                <span>{ticketName} × {qty}</span>
+                                <span>${classicTotal.toLocaleString('es-MX')} MXN</span>
+                              </div>
+                              <div className="order-line muted"><span>Cargos por servicio</span><span>Incluidos</span></div>
+                              <div className="order-divider" />
+                              <div className="order-line total">
+                                <span>Total</span>
+                                <span style={{ color }}>${classicTotal.toLocaleString('es-MX')} MXN</span>
+                              </div>
+                            </div>
+                          </section>
+                        </>
+                      )}
+                    </>
                   )}
+
+                  {/* Error */}
+                  {error && (
+                    <div className="error-banner" role="alert">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                      </svg>
+                      {error}
+                    </div>
+                  )}
+
+                  {/* CTA: Continuar al pago */}
+                  <button
+                    className="buy-btn"
+                    style={{ background: color }}
+                    onClick={handleInitiatePayment}
+                    disabled={initiating || !canProceed}
+                    aria-busy={initiating}
+                  >
+                    {initiating ? (
+                      <><div className="btn-spinner" /><span>Preparando pago…</span></>
+                    ) : (
+                      <>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+                          <line x1="1" y1="10" x2="23" y2="10" />
+                        </svg>
+                        <span>Continuar al pago · ${displayTotal.toLocaleString('es-MX')} MXN</span>
+                      </>
+                    )}
+                  </button>
+                  <p className="buy-note">Al continuar aceptas los términos de uso. Sin reembolsos.</p>
                 </>
               )}
-
-              {/* Error */}
-              {error && (
-                <div className="error-banner" role="alert">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-                  </svg>
-                  {error}
-                </div>
-              )}
-
-              {/* CTA */}
-              <button
-                className="buy-btn"
-                style={{ background: color }}
-                onClick={handleBuy}
-                disabled={buying || !canBuy}
-                aria-busy={buying}
-              >
-                {buying ? (
-                  <><div className="btn-spinner" /><span>Procesando…</span></>
-                ) : (
-                  <>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                    <span>Confirmar compra · ${displayTotal.toLocaleString('es-MX')} MXN</span>
-                  </>
-                )}
-              </button>
-              <p className="buy-note">Al confirmar aceptas los términos de uso. Sin reembolsos.</p>
             </>
           )}
         </main>
@@ -911,21 +1026,15 @@ const CSS = `
   /* MAP SECTION */
   .map-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:1.25rem;}
 
-  /* SEAT MAP ROOT */
+  /* SEAT MAP */
   .seatmap-root{display:flex;flex-direction:column;gap:0.875rem;}
-
-  /* ZONE LEGEND */
   .sm-legend{display:flex;flex-wrap:wrap;gap:0.5rem 1rem;}
   .sm-zone{display:flex;align-items:center;gap:0.4rem;font-size:0.75rem;color:var(--text-muted);}
   .sm-zone-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
   .sm-zone-name{color:var(--text-muted);}
   .sm-zone-price{font-weight:700;color:var(--text);margin-left:0.25rem;}
-
-  /* MAP VIEWPORT */
   .sm-viewport{position:relative;height:420px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;}
   @media(max-width:640px){.sm-viewport{height:300px;}}
-
-  /* CAPACITY BAR */
   .sm-capbar{position:absolute;top:10px;left:10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:8px 12px;display:flex;gap:16px;z-index:5;box-shadow:0 2px 8px oklch(0 0 0/.3);}
   .sm-cap-item{display:flex;flex-direction:column;gap:3px;min-width:52px;}
   .sm-cap-label{font-size:0.6rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text-faint);}
@@ -934,17 +1043,11 @@ const CSS = `
   .sm-cap-fill.warn{background:var(--gold);}
   .sm-cap-fill.full{background:#d163a7;}
   .sm-cap-pct{font-size:0.65rem;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums;}
-
-  /* HINT */
   .sm-hint{position:absolute;top:10px;left:50%;transform:translateX(-50%);font-size:0.72rem;color:var(--text-faint);background:var(--surface);border:1px solid var(--border);border-radius:9999px;padding:3px 10px;white-space:nowrap;z-index:5;pointer-events:none;}
-
-  /* ZOOM */
   .sm-zoom{position:absolute;bottom:14px;right:14px;display:flex;flex-direction:column;gap:4px;z-index:10;}
   .sm-zoom-btn{width:32px;height:32px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;font-size:1rem;font-weight:700;color:var(--text-muted);cursor:pointer;transition:background var(--tr),color var(--tr);}
   .sm-zoom-btn:hover{background:var(--surface-3);color:var(--text);}
   .sm-zoom-rst{font-size:0.6rem;letter-spacing:.05em;font-weight:600;}
-
-  /* SVG SEAT CLASSES (applied by DOM manipulation) */
   .seatmap-root .seat{transition:transform 110ms cubic-bezier(0.16,1,0.3,1),fill 110ms ease;cursor:pointer;transform-box:fill-box;transform-origin:center;}
   .seatmap-root .seat.available:hover{transform:scale(1.25);filter:brightness(1.15);}
   .seatmap-root .seat.selected{animation:pop 260ms cubic-bezier(0.16,1,0.3,1) both;}
@@ -952,14 +1055,10 @@ const CSS = `
   @keyframes pop{0%{transform:scale(.6)}65%{transform:scale(1.25)}100%{transform:scale(1)}}
   .rlbl{font-family:'Satoshi',sans-serif;font-size:9px;font-weight:600;fill:var(--text-faint);pointer-events:none;user-select:none;dominant-baseline:central;text-anchor:middle;}
   .slbl{font-family:'Satoshi',sans-serif;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;fill:var(--text-faint);pointer-events:none;user-select:none;text-anchor:middle;}
-
-  /* TOOLTIP */
   .sm-tip{position:fixed;z-index:200;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-md);padding:6px 10px;font-size:0.75rem;color:var(--text);box-shadow:0 4px 12px oklch(0 0 0/.3);pointer-events:none;white-space:nowrap;}
   .sm-tip-id{font-weight:700;margin-bottom:2px;}
   .sm-tip-sub{color:var(--text-muted);}
   .sm-tip-price{color:var(--accent);font-weight:700;margin-top:3px;}
-
-  /* SELECTED SEATS PANEL */
   .sm-selection{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:1rem 1.25rem;}
   .sm-sel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;}
   .sm-sel-title{font-size:0.72rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-faint);display:flex;align-items:center;gap:0.4rem;}
@@ -972,8 +1071,11 @@ const CSS = `
   .sm-sel-sub{color:var(--text-muted);margin-top:1px;}
   .sm-sel-rm{color:var(--text-faint);font-size:1.1rem;line-height:1;cursor:pointer;transition:color var(--tr);padding:2px 4px;border-radius:4px;}
   .sm-sel-rm:hover{color:#d163a7;}
+.sm-limit-banner{display:flex;align-items:center;gap:0.5rem;background:oklch(0.35 0.1 15/0.15);border:1px solid oklch(0.45 0.15 15/0.35);border-radius:var(--radius-lg);padding:0.65rem 1rem;font-size:0.82rem;font-weight:600;color:#f87171;animation:slideIn 200ms cubic-bezier(0.16,1,0.3,1);}
 
-  /* TICKET SELECTOR (classic) */
+
+
+  /* CLASSIC SELECTOR */
   .ticket-selector{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:1.25rem;}
   .ticket-row{display:flex;align-items:center;justify-content:space-between;gap:1rem;}
   .ticket-info{display:flex;flex-direction:column;gap:0.15rem;}
@@ -1001,6 +1103,22 @@ const CSS = `
   .order-line.total{font-weight:700;font-size:0.95rem;}
   .order-divider{height:1px;background:var(--border);margin:0.4rem 0;}
 
+  /* STRIPE PAYMENT SECTION */
+  .payment-section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-xl);padding:1.25rem;}
+  .payment-form{display:flex;flex-direction:column;gap:1.25rem;}
+  .payment-form-header{display:flex;align-items:center;gap:0.75rem;}
+  .back-btn-sm{display:inline-flex;align-items:center;gap:0.3rem;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-md);padding:0.35rem 0.75rem;font-size:0.78rem;font-weight:600;color:var(--text-muted);cursor:pointer;transition:background var(--tr),color var(--tr);font-family:var(--font);}
+  .back-btn-sm:hover:not(:disabled){background:var(--surface-3);color:var(--text);}
+  .back-btn-sm:disabled{opacity:0.5;cursor:not-allowed;}
+  .payment-title{font-size:0.875rem;font-weight:600;color:var(--text);}
+  .stripe-element-wrapper{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-lg);padding:1rem;}
+  .pay-error{display:flex;align-items:flex-start;gap:0.5rem;background:oklch(0.35 0.1 15/0.15);border:1px solid oklch(0.45 0.15 15/0.35);border-radius:var(--radius-md);padding:0.65rem 0.875rem;font-size:0.82rem;color:#f87171;}
+  .pay-btn{width:100%;padding:0.95rem;border:none;border-radius:var(--radius-lg);color:#0e0e0f;font-family:var(--font);font-size:0.95rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:0.5rem;transition:opacity var(--tr),transform var(--tr);}
+  .pay-btn:hover:not(:disabled){opacity:0.88;transform:translateY(-1px);}
+  .pay-btn:active:not(:disabled){transform:translateY(0);}
+  .pay-btn:disabled{opacity:0.55;cursor:not-allowed;transform:none;}
+  .pay-note{font-size:0.72rem;color:var(--text-faint);text-align:center;}
+
   /* ERROR */
   .error-banner{display:flex;align-items:center;gap:0.6rem;background:oklch(0.35 0.1 15/0.15);border:1px solid oklch(0.45 0.15 15/0.35);border-radius:var(--radius-lg);padding:0.75rem 1rem;font-size:0.875rem;color:#f87171;}
 
@@ -1015,7 +1133,6 @@ const CSS = `
   @keyframes spin{to{transform:rotate(360deg)}}
   .spinner{width:28px;height:28px;border:2px solid var(--surface-3);border-top-color:var(--accent);border-radius:9999px;animation:spin 0.7s linear infinite;margin:4rem auto;}
   .btn-spinner{width:16px;height:16px;border:2px solid oklch(0 0 0/0.3);border-top-color:#0e0e0f;border-radius:9999px;animation:spin 0.7s linear infinite;flex-shrink:0;}
-
   .loading-state{display:flex;justify-content:center;padding:4rem 0;}
   .error-state{text-align:center;padding:4rem 0;color:var(--text-muted);}
   .back-link{display:inline-flex;align-items:center;color:var(--accent);font-size:0.875rem;font-weight:500;text-decoration:none;margin-top:0.75rem;}
